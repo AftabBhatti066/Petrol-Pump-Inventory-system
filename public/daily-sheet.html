@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bhatti Petroleum, BHOBRA - [Daily Management Dashboard]</title>
+    <link rel="stylesheet" href="style.css">
+
+</head>
+
+<body>
+
+    <div class="window-title">
+        <span>⛽ Bhatti Petroleum, BHOBRA - Daily Sheet</span>
+        <button id="logoutBtn" class="btn btn-danger">
+            <i class="fas fa-sign-out-alt"></i> Logout
+        </button>
+    </div>
+
+
+
+    <div class="tabs-container">
+        <a href="dashboard.html" class="tab-btn">📊 Dashboard</a>
+        <a href="meter-reading.html" class="tab-btn">⛽ Meter Reading</a>
+        <a href="daily-sheet.html" class="tab-btn active">📝 Daily Sheet</a>
+        <a href="ledgers.html" class="tab-btn">📒 Ledgers</a>
+        <a href="pricing.html" class="tab-btn">📊 Pricing</a>
+        <a href="reports.html" class="tab-btn">📁 Reports</a>
+    </div>
+
+    <div class="meta-header">
+        <div><strong>Date:</strong> <input type="date" id="working_date" onchange="loadSheetByDate()"></div>
+
+    </div>
+
+    <div class="section-header-box">
+        <span>Daily Sheet (Customer Accounts & Memory Lock)</span>
+        <span style="font-weight: normal; font-size: 12px;">Status: Realtime Dynamic Triggers Fixed</span>
+    </div>
+
+    <div class="control-panel">
+        <div class="filter-group">
+            <span>🔍 Filter ID:</span>
+            <input type="text" id="filter_id" class="filter-input" placeholder="e.g. mh" oninput="filterTable()">
+        </div>
+
+        <div class="add-cust-group">
+            <span style="color: #6c3483; font-weight: bold;">+ New Cust:</span>
+            <input type="text" id="new_cust_name" placeholder="Name" style="width: 180px;">
+            <input type="text" id="new_cust_id" placeholder="ID (e.g. m)" style="width: 80px;">
+            <button class="btn-add" onclick="addNewCustomer()">Add</button>
+        </div>
+
+        <button class="btn-save-sheet" onclick="saveAllSheetEntries()">💾 Save Daily Sheet</button>
+    </div>
+
+    <table class="sheet-table">
+        <thead>
+            <tr>
+                <th style="width: 32%;">Customer Name</th>
+                <th style="width: 15%;">Search ID</th>
+                <th style="width: 18%;">Debit (Udhaar)</th>
+                <th style="width: 18%;">Credit (Vasooli)</th>
+                <th style="width: 10%;">Total</th>
+                <th style="width: 7%;">Action</th>
+            </tr>
+        </thead>
+        <tbody id="sheetTableBody">
+        </tbody>
+    </table>
+
+    <div class="summary-bar">
+        <div>
+            <span>Total Debit: <span id="lbl_total_debit" style="color: #c0392b;">0</span></span>
+            <span style="margin-left: 25px;">Total Credit: <span id="lbl_total_credit"
+                    style="color: #1f618d;">0</span></span>
+        </div>
+        <div class="net-income">
+            Net Cash Income: <span id="lbl_net_income">0</span> PKR
+        </div>
+    </div>
+
+    <script>
+        const API_URL = '/api/daily-sheet';
+
+        function getTodayDateString() {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        async function loadSheetByDate() {
+            const dateInput = document.getElementById('working_date');
+            if (!dateInput || !dateInput.value) return;
+
+            const currentDate = dateInput.value;
+            // 🔥 FIXED: LocalStorage se userId li
+            const userId = localStorage.getItem('userId');
+            if (!userId) { window.location.href = '/login.html'; return; }
+
+            try {
+                // 🔥 FIXED: URL mein userId pass ki taakay sirf is user ke customers/entries aayin
+                const response = await fetch(`${API_URL}/view/${currentDate}?userId=${userId}`);
+                const result = await response.json();
+
+                if (result.status === "Success") {
+                    renderTableRows(result.entries);
+                }
+            } catch (err) {
+                console.error("Connection error:", err);
+            }
+        }
+
+        function renderTableRows(entries) {
+            const tbody = document.getElementById('sheetTableBody');
+            tbody.innerHTML = "";
+
+            if (!entries || entries.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center" style="padding: 15px; color: #7f8c8d;">Pehle <b>+ New Cust</b> section se customers add karein.</td></tr>`;
+                recalculateTotals();
+                return;
+            }
+
+            entries.forEach((row) => {
+                const tr = document.createElement('tr');
+                tr.setAttribute('data-search-id', row.search_id.toLowerCase());
+                tr.setAttribute('data-db-id', row.id);
+
+                const debitVal = parseFloat(row.debit_udhaar) || 0;
+                const creditVal = parseFloat(row.credit_vasooli) || 0;
+                const totalVal = debitVal - creditVal;
+
+                tr.innerHTML = `
+                <td class="text-bold cust-name-cell">${row.customer_name}</td>
+                <td class="text-center text-bold search-id-cell">${row.search_id}</td>
+                <td><input type="number" class="sheet-input input-debit" value="${debitVal}" oninput="recalculateTotals()"></td>
+                <td><input type="number" class="sheet-input input-credit" value="${creditVal}" oninput="recalculateTotals()"></td>
+                <td class="text-right text-bold row-total">${totalVal}</td>
+                <td class="text-center"><span class="btn-delete" onclick="deleteEntry(event, ${row.id}, '${row.search_id}')">[X]</span></td>
+            `;
+                tbody.appendChild(tr);
+            });
+
+            recalculateTotals();
+        }
+
+        function recalculateTotals() {
+            let grandDebit = 0;
+            let grandCredit = 0;
+
+            const tbody = document.getElementById('sheetTableBody');
+            const rows = tbody.querySelectorAll('tr');
+
+            rows.forEach(tr => {
+                const debitInput = tr.querySelector('.input-debit');
+                const creditInput = tr.querySelector('.input-credit');
+                const totalCell = tr.querySelector('.row-total');
+
+                if (debitInput && creditInput) {
+                    const debit = parseFloat(debitInput.value) || 0;
+                    const credit = parseFloat(creditInput.value) || 0;
+
+                    const rowTotal = debit - credit;
+                    totalCell.textContent = rowTotal;
+
+                    grandDebit += debit;
+                    grandCredit += credit;
+                }
+            });
+
+            document.getElementById('lbl_total_debit').textContent = grandDebit.toLocaleString();
+            document.getElementById('lbl_total_credit').textContent = grandCredit.toLocaleString();
+            document.getElementById('lbl_net_income').textContent = grandCredit.toLocaleString();
+        }
+
+        function filterTable() {
+            const query = document.getElementById('filter_id').value.trim().toLowerCase();
+            const tbody = document.getElementById('sheetTableBody');
+            const rows = tbody.querySelectorAll('tr');
+
+            rows.forEach(tr => {
+                const searchId = tr.getAttribute('data-search-id');
+                if (searchId && searchId.includes(query)) {
+                    tr.style.display = '';
+                } else if (searchId) {
+                    tr.style.display = 'none';
+                }
+            });
+        }
+
+        async function addNewCustomer() {
+            const name = document.getElementById('new_cust_name').value.trim();
+            const searchId = document.getElementById('new_cust_id').value.trim();
+            const userId = localStorage.getItem('userId');
+
+            if (!name || !searchId) {
+                alert("Customer Name aur Search ID dono zaroori hain!");
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_URL}/customer`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    // 🔥 FIXED: Body mein userId bhej di taakay customer us unique manager se map ho
+                    body: JSON.stringify({ customer_name: name, search_id: searchId, userId: userId })
+                });
+
+                const result = await res.json();
+                if (result.status === "Success") {
+                    document.getElementById('new_cust_name').value = "";
+                    document.getElementById('new_cust_id').value = "";
+                    await loadSheetByDate();
+                } else {
+                    alert("Error: " + (result.message || result.db_error));
+                }
+            } catch (err) {
+                console.error("Customer add error:", err);
+            }
+        }
+
+        async function saveAllSheetEntries() {
+            const currentDate = document.getElementById('working_date').value;
+            const tbody = document.getElementById('sheetTableBody');
+            const rows = tbody.querySelectorAll('tr');
+            const userId = localStorage.getItem('userId');
+
+            if (rows.length === 0) return;
+
+            const entries = [];
+
+            rows.forEach(tr => {
+                const custNameCell = tr.querySelector('.cust-name-cell');
+                const searchIdCell = tr.querySelector('.search-id-cell');
+                const debitInput = tr.querySelector('.input-debit');
+                const creditInput = tr.querySelector('.input-credit');
+
+                if (searchIdCell && debitInput && creditInput) {
+                    entries.push({
+                        customer_name: custNameCell ? custNameCell.textContent.trim() : '',
+                        search_id: searchIdCell.textContent.trim(),
+                        debit_udhaar: parseFloat(debitInput.value) || 0,
+                        credit_vasooli: parseFloat(creditInput.value) || 0,
+                        sheet_date: currentDate,
+                        userId: userId // 🔥 FIXED: Har row batch entry mein manager ID include ki
+                    });
+                }
+            });
+
+            try {
+                const res = await fetch(`${API_URL}/save`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ entries: entries, sheet_date: currentDate, userId: userId })
+                });
+
+                const result = await res.json();
+                if (result.status === "Success") {
+                    alert("🎉 Data Kamyabi se Save Ho Gaya!");
+                    await loadSheetByDate();
+                } else {
+                    alert("Error: " + (result.message || result.db_error));
+                }
+            } catch (err) {
+                console.error("Saving error:", err);
+            }
+        }
+
+        async function deleteEntry(event, id, searchId) {
+            if (event) event.stopPropagation();
+            const userId = localStorage.getItem('userId');
+
+            const choice = confirm(`Customer (${searchId}) ko delete karna chahte hain?`);
+            if (!choice) return;
+
+            try {
+                // 🔥 FIXED: Delete request ke sath query string parameter mein userId bhej di
+                const res = await fetch(`${API_URL}/delete-customer/${searchId}?userId=${userId}`, { method: 'DELETE' });
+                const result = await res.json();
+
+                if (result.status === "Success") {
+                    await loadSheetByDate();
+                } else {
+                    alert(result.message || result.db_error);
+                }
+            } catch (err) {
+                console.error("Delete error:", err);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const dateInput = document.getElementById('working_date');
+            if (dateInput) {
+                dateInput.value = getTodayDateString();
+                dateInput.addEventListener('change', loadSheetByDate);
+            }
+            loadSheetByDate();
+        });
+
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+    // 1. LocalStorage se user ka data clear karen
+    localStorage.removeItem('user_id');
+    localStorage.removeItem('username');
+    
+    // Agar aap ne koi token ya extra data save kiya tha, toh poori storage bhi clear kar sakte hain:
+    // localStorage.clear();
+
+    // 2. Alert message (Optional)
+    alert("Aap successfully logout ho chuke hain!");
+
+    // 3. Wapas Login page par redirect karen
+    window.location.href = 'login.html'; 
+});
+    </script>
+</body>
+
+</html>

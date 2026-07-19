@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bhatti Petroleum, BHOBRA - [Daily Management Dashboard]</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Styles yahan aap ke custom css se pull ho rahay hain */
+    </style>
+</head>
+
+<body>
+
+    <div class="window-title">
+        <span>⛽ Bhatti Petroleum, BHOBRA - Meter Reading</span>
+        <button id="logoutBtn" class="btn btn-danger">
+    <i class="fas fa-sign-out-alt"></i> Logout
+</button>
+    </div>
+
+    <div class="tabs-container">
+        <a href="dashboard.html" class="tab-btn">📊 Dashboard</a>
+        <a href="meter-reading.html" class="tab-btn active">⛽ Meter Reading</a>
+        <a href="daily-sheet.html" class="tab-btn">📝 Daily Sheet</a>
+        <a href="ledgers.html" class="tab-btn">📒 Ledgers</a>
+        <a href="pricing.html" class="tab-btn">📊 Pricing</a>
+        <a href="reports.html" class="tab-btn">📁 Reports</a>
+    </div>
+
+    <div class="action-bar">
+        <button class="btn-save" onclick="saveAllReadings()">💾 Save & Close Day</button>
+        <button class="btn-reset" onclick="loadCurrentStatusFromDB()">🔄 Refresh Screen</button>
+        <div><strong>Working Date:</strong> <input type="date" id="working_date" value="2026-06-23"></div>
+        <div class="info-tag" id="syncStatus">🔄 Syncing with DB...</div>
+    </div>
+
+    <div class="section-box">
+        <div class="section-title">
+            <span>Nozzle Meter Readings (Fuel Sales Calculation)</span>
+            <span class="live-indicator">* Changing Closing values live-updates the calculations</span>
+        </div>
+        <table class="matrix-table">
+            <thead>
+                <tr>
+                    <th class="header-desc">Field Description</th>
+                    <th style="width: 14%;">Diesel (N1)</th>
+                    <th style="width: 14%;">Diesel (N2)</th>
+                    <th style="width: 14%;">Diesel (N3)</th>
+                    <th style="width: 14%;">Diesel (N4)</th>
+                    <th style="width: 14%;">Super (N1)</th>
+                    <th style="width: 14%;">Super (N2)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="row-desc">Opening Meter (Ltr)</td>
+                    <td><span id="open_diesel_n1" class="val-blue">0.00</span></td>
+                    <td><span id="open_diesel_n2" class="val-blue">0.00</span></td>
+                    <td><span id="open_diesel_n3" class="val-blue">0.00</span></td>
+                    <td><span id="open_diesel_n4" class="val-blue">0.00</span></td>
+                    <td><span id="open_super_n1" class="val-blue">0.00</span></td>
+                    <td><span id="open_super_n2" class="val-blue">0.00</span></td>
+                </tr>
+                <tr>
+                    <td class="row-desc">Closing Meter (Ltr)</td>
+                    <td><input type="number" id="close_diesel_n1" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" id="close_diesel_n2" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" id="close_diesel_n3" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" id="close_diesel_n4" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" id="close_super_n1" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" id="close_super_n2" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                </tr>
+                <tr style="background-color: #eaeded;">
+                    <td class="row-desc">Calculated Sales (Ltr)</td>
+                    <td><span id="sales_diesel_n1" class="val-blue">0.00</span></td>
+                    <td><span id="sales_diesel_n2" class="val-blue">0.00</span></td>
+                    <td><span id="sales_diesel_n3" class="val-blue">0.00</span></td>
+                    <td><span id="sales_diesel_n4" class="val-blue">0.00</span></td>
+                    <td><span id="sales_super_n1" class="val-blue">0.00</span></td>
+                    <td><span id="sales_super_n2" class="val-blue">0.00</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section-box">
+        <div class="section-title">
+            <span>Underground Tank Stock Management</span>
+            <span style="font-size:12px; color:#2980b9;">[Closing Stock = Opening + Receipt - Sales]</span>
+        </div>
+        <table class="matrix-table">
+            <thead>
+                <tr>
+                    <th class="header-desc">Stock Status</th>
+                    <th style="width: 42%;">Total Diesel (Tank)</th>
+                    <th style="width: 42%;">Total Super (Tank)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="row-desc">Opening Stock Balance</td>
+                    <td><span id="stock_open_diesel" class="val-blue">0.00</span></td>
+                    <td><span id="stock_open_super" class="val-blue">0.00</span></td>
+                </tr>
+                <tr>
+                    <td class="row-desc">New Supply Receipt (+)</td>
+                    <td><input type="number" id="receipt_diesel" class="matrix-input" value="0" oninput="calculateLiveSales()"></td>
+                    <td><input type="number" id="receipt_super" class="matrix-input" value="0" oninput="calculateLiveSales()"></td>
+                </tr>
+                <tr style="background-color: #eaeded;">
+                    <td class="row-desc">Sales Deductions (-)</td>
+                    <td><span id="stock_deduct_diesel" class="val-purple">0.00</span></td>
+                    <td><span id="stock_deduct_super" class="val-purple">0.00</span></td>
+                </tr>
+                <tr style="background-color: #f4f6f7;">
+                    <td class="row-desc">Current Closing Stock</td>
+                    <td><span id="stock_close_diesel" class="val-blue">0.00</span></td>
+                    <td><span id="stock_close_super" class="val-blue">0.00</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section-box">
+        <div class="section-title">
+            <span>Mobil Oil / Lubricants Inventory Management Matrix</span>
+            <span style="font-size:12px; color:#27ae60;">[Unit Target: Nos / Bottles]</span>
+        </div>
+        <table class="matrix-table" id="lubricantTable">
+            <thead>
+                <tr>
+                    <th class="header-desc">Mobil Oil Product Variant</th>
+                    <th style="width: 20%;">Opening Stock (Qty)</th>
+                    <th style="width: 20%;">New Purchase Receipt (+)</th>
+                    <th style="width: 20%;">Shift Sales Deduct (-)</th>
+                    <th style="width: 24%;">Closing Stock Balance</th>
+                </tr>
+            </thead>
+            <tbody id="lubricantBody">
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        const API_URL = '/api/meter';
+
+        let openingValues = {
+            'Diesel (N1)': 0, 'Diesel (N2)': 0, 'Diesel (N3)': 0, 'Diesel (N4)': 0,
+            'Super (N1)': 0, 'Super (N2)': 0
+        };
+
+        let tankOpeningStock = { 'Diesel': 0, 'Super': 0 };
+        let lubricantOpeningStock = {};
+
+        const lubricantItemsList = [
+            'T 2 20Ltrs', 'Balize .75', 'Balize 1Ltrs', 'Cariant 3Ltrs',
+            'Cariant 4ltrs', 'Deo 6000 4Ltrs', 'Deo 6000 10Ltrs',
+            'Deo 8000 4Ltrs', 'Deo 8000 10Ltrs'
+        ];
+
+        function getTodayDateString() {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        async function loadCurrentStatusFromDB() {
+            try {
+                const statusTag = document.getElementById('syncStatus');
+                if (statusTag) {
+                    statusTag.textContent = "🔄 Syncing with DB...";
+                    statusTag.style.color = "#b7950b";
+                }
+
+                const userId = localStorage.getItem('userId');
+                if (!userId) {
+                    alert("User session expired! Pehle login karein.");
+                    window.location.href = 'login.html';
+                    return;
+                }
+
+                // A. Nozzle readings load
+                const response = await fetch(`${API_URL}/all?userId=${userId}`);
+                const result = await response.json();
+                if (result.status === "Success" && result.data) {
+                    const records = result.data;
+                    updateNozzleOpening('Diesel (N1)', 'open_diesel_n1', records);
+                    updateNozzleOpening('Diesel (N2)', 'open_diesel_n2', records);
+                    updateNozzleOpening('Diesel (N3)', 'open_diesel_n3', records);
+                    updateNozzleOpening('Diesel (N4)', 'open_diesel_n4', records);
+                    updateNozzleOpening('Super (N1)', 'open_super_n1', records);
+                    updateNozzleOpening('Super (N2)', 'open_super_n2', records);
+                }
+
+                // B. Fuel Tank stock load
+                const stockResponse = await fetch(`${API_URL}/tank-stock?userId=${userId}`);
+                const stockResult = await stockResponse.json();
+
+                tankOpeningStock['Diesel'] = 0;
+                tankOpeningStock['Super'] = 0;
+
+                if (stockResult.status === "Success" && stockResult.data) {
+                    stockResult.data.forEach(row => {
+                        const normalizedType = row.fuel_type.trim().toLowerCase();
+                        if (normalizedType === 'diesel') tankOpeningStock['Diesel'] = parseFloat(row.current_stock) || 0;
+                        if (normalizedType === 'super') tankOpeningStock['Super'] = parseFloat(row.current_stock) || 0;
+                    });
+                }
+
+                const openDieselEl = document.getElementById('stock_open_diesel');
+                const openSuperEl = document.getElementById('stock_open_super');
+                if (openDieselEl) openDieselEl.textContent = tankOpeningStock['Diesel'].toFixed(2);
+                if (openSuperEl) openSuperEl.textContent = tankOpeningStock['Super'].toFixed(2);
+
+                // C. Mobil Oil Lubricant Stock Load
+                const lubResponse = await fetch(`${API_URL}/lubricant-stock?userId=${userId}`);
+                const lubResult = await lubResponse.json();
+
+                const tbody = document.getElementById('lubricantBody');
+                if (tbody) {
+                    tbody.innerHTML = "";
+                    lubricantOpeningStock = {};
+
+                    if (lubResult.status === "Success" && lubResult.data && lubResult.data.length > 0) {
+                        lubResult.data.forEach((row, index) => {
+                            lubricantOpeningStock[row.item_name] = parseInt(row.current_stock) || 0;
+
+                            const tr = document.createElement('tr');
+                            tr.innerHTML = `
+                                <td class="row-desc">${row.item_name}</td>
+                                <td><span id="lub_open_${index}" class="val-blue">${row.current_stock}</span></td>
+                                <td><input type="number" id="lub_rec_${index}" class="matrix-input" value="0" oninput="calculateLiveSales()"></td>
+                                <td><input type="number" id="lub_sale_${index}" class="matrix-input" value="0" oninput="calculateLiveSales()"></td>
+                                <td><span id="lub_close_${index}" class="val-purple">${row.current_stock}</span></td>
+                            `;
+                            tbody.appendChild(tr);
+                        });
+                    } else {
+                        tbody.innerHTML = `<tr><td colspan="5" class="text-center" style="color: #7f8c8d; padding: 15px; font-weight: bold;">Is user ke liye koi lubricant stock mojud nahi hai.</td></tr>`;
+                    }
+                }
+
+                if (statusTag) {
+                    statusTag.textContent = "✅ Connected to Live DB";
+                    statusTag.style.color = "#27ae60";
+                }
+
+                const recDieselEl = document.getElementById('receipt_diesel');
+                const recSuperEl = document.getElementById('receipt_super');
+                if (recDieselEl) recDieselEl.value = "0";
+                if (recSuperEl) recSuperEl.value = "0";
+
+                calculateLiveSales();
+
+            } catch (error) {
+                console.error("Sync Failure:", error);
+                const statusTag = document.getElementById('syncStatus');
+                if (statusTag) {
+                    statusTag.textContent = "❌ DB Connection Failed!";
+                    statusTag.style.color = "#c0392b";
+                }
+            }
+        }
+
+        function updateNozzleOpening(nozzleName, elementId, records) {
+            const match = records.find(r => r.nozzle_name.trim().toLowerCase() === nozzleName.trim().toLowerCase());
+            openingValues[nozzleName] = match ? (parseFloat(match.closing_reading) || 0) : 0;
+            const el = document.getElementById(elementId);
+            if (el) el.textContent = openingValues[nozzleName].toFixed(2);
+        }
+
+        function calculateLiveSales() {
+            const c_dn1 = parseFloat(document.getElementById('close_diesel_n1')?.value) || openingValues['Diesel (N1)'] || 0;
+            const c_dn2 = parseFloat(document.getElementById('close_diesel_n2')?.value) || openingValues['Diesel (N2)'] || 0;
+            const c_dn3 = parseFloat(document.getElementById('close_diesel_n3')?.value) || openingValues['Diesel (N3)'] || 0;
+            const c_dn4 = parseFloat(document.getElementById('close_diesel_n4')?.value) || openingValues['Diesel (N4)'] || 0;
+            const c_sn1 = parseFloat(document.getElementById('close_super_n1')?.value) || openingValues['Super (N1)'] || 0;
+            const c_sn2 = parseFloat(document.getElementById('close_super_n2')?.value) || openingValues['Super (N2)'] || 0;
+
+            const sales_dn1 = Math.max(0, c_dn1 - (openingValues['Diesel (N1)'] || 0));
+            const sales_dn2 = Math.max(0, c_dn2 - (openingValues['Diesel (N2)'] || 0));
+            const sales_dn3 = Math.max(0, c_dn3 - (openingValues['Diesel (N3)'] || 0));
+            const sales_dn4 = Math.max(0, c_dn4 - (openingValues['Diesel (N4)'] || 0));
+            const sales_sn1 = Math.max(0, c_sn1 - (openingValues['Super (N1)'] || 0));
+            const sales_sn2 = Math.max(0, c_sn2 - (openingValues['Super (N2)'] || 0));
+
+            if (document.getElementById('sales_diesel_n1')) document.getElementById('sales_diesel_n1').textContent = sales_dn1.toFixed(2);
+            if (document.getElementById('sales_diesel_n2')) document.getElementById('sales_diesel_n2').textContent = sales_dn2.toFixed(2);
+            if (document.getElementById('sales_diesel_n3')) document.getElementById('sales_diesel_n3').textContent = sales_dn3.toFixed(2);
+            if (document.getElementById('sales_diesel_n4')) document.getElementById('sales_diesel_n4').textContent = sales_dn4.toFixed(2);
+            if (document.getElementById('sales_super_n1')) document.getElementById('sales_super_n1').textContent = sales_sn1.toFixed(2);
+            if (document.getElementById('sales_super_n2')) document.getElementById('sales_super_n2').textContent = sales_sn2.toFixed(2);
+
+            const total_diesel_sales = sales_dn1 + sales_dn2 + sales_dn3 + sales_dn4;
+            const total_super_sales = sales_sn1 + sales_sn2;
+
+            if (document.getElementById('stock_deduct_diesel')) document.getElementById('stock_deduct_diesel').textContent = total_diesel_sales.toFixed(2);
+            if (document.getElementById('stock_deduct_super')) document.getElementById('stock_deduct_super').textContent = total_super_sales.toFixed(2);
+
+            const rec_diesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
+            const rec_super = parseFloat(document.getElementById('receipt_super')?.value) || 0;
+
+            if (document.getElementById('stock_close_diesel')) document.getElementById('stock_close_diesel').textContent = ((tankOpeningStock['Diesel'] || 0) + rec_diesel - total_diesel_sales).toFixed(2);
+            if (document.getElementById('stock_close_super')) document.getElementById('stock_close_super').textContent = ((tankOpeningStock['Super'] || 0) + rec_super - total_super_sales).toFixed(2);
+
+            // 🔥 Safe Mobil Oil calculations
+            const tbody = document.getElementById('lubricantBody');
+            if (tbody) {
+                const rows = tbody.getElementsByTagName('tr');
+                for (let i = 0; i < rows.length; i++) {
+                    const descEl = rows[i].getElementsByClassName('row-desc')[0];
+                    if (!descEl) continue;
+
+                    const itemName = descEl.textContent;
+                    const opening = lubricantOpeningStock[itemName] || 0;
+                    const receipt = parseInt(document.getElementById(`lub_rec_${i}`)?.value) || 0;
+                    const sales = parseInt(document.getElementById(`lub_sale_${i}`)?.value) || 0;
+
+                    const closing = opening + receipt - sales;
+                    const lubCloseEl = document.getElementById(`lub_close_${i}`);
+                    if (lubCloseEl) lubCloseEl.textContent = closing;
+                }
+            }
+        }
+
+        async function saveAllReadings() {
+            const dateInput = document.getElementById('working_date')?.value || getTodayDateString();
+            const statusTag = document.getElementById('syncStatus');
+
+            if (statusTag) {
+                statusTag.textContent = "⏳ Saving transactions...";
+                statusTag.style.color = "#b7950b";
+            }
+
+            const userId = localStorage.getItem('userId');
+            if (!userId) {
+                alert("Session expired! Dobara login karein.");
+                return;
+            }
+
+            try {
+                // 1. Fuel Tank Receipts Update
+                const recDiesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
+                const recSuper = parseFloat(document.getElementById('receipt_super')?.value) || 0;
+                if (recDiesel > 0) {
+                    await fetch(`${API_URL}/update-receipt`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ fuel_type: 'Diesel', receipt_liters: recDiesel, userId: userId })
+                    });
+                }
+                if (recSuper > 0) {
+                    await fetch(`${API_URL}/update-receipt`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ fuel_type: 'Super', receipt_liters: recSuper, userId: userId })
+                    });
+                }
+
+                // 2. Fuel Nozzles Update
+                const nozzleConfigs = [
+                    { name: 'Diesel (N1)', type: 'Diesel', inputId: 'close_diesel_n1' },
+                    { name: 'Diesel (N2)', type: 'Diesel', inputId: 'close_diesel_n2' },
+                    { name: 'Diesel (N3)', type: 'Diesel', inputId: 'close_diesel_n3' },
+                    { name: 'Diesel (N4)', type: 'Diesel', inputId: 'close_diesel_n4' },
+                    { name: 'Super (N1)', type: 'Super', inputId: 'close_super_n1' },
+                    { name: 'Super (N2)', type: 'Super', inputId: 'close_super_n2' }
+                ];
+
+                for (const target of nozzleConfigs) {
+                    const inputEl = document.getElementById(target.inputId);
+                    const rawValue = inputEl ? inputEl.value : "";
+                    if (rawValue && rawValue.trim() !== "") {
+                        await fetch(`${API_URL}/add`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                nozzle_name: target.name,
+                                fuel_type: target.type,
+                                closing_reading: parseFloat(rawValue),
+                                reading_date: dateInput,
+                                userId: userId
+                            })
+                        });
+                        await new Promise(res => setTimeout(res, 60));
+                    }
+                }
+
+                // 3. Mobil Oil Batch Process Packager (Safe Layout Check)
+                const lubSales = [];
+                const lubReceipts = [];
+                const tbody = document.getElementById('lubricantBody');
+                
+                if (tbody) {
+                    const rows = tbody.getElementsByTagName('tr');
+                    // Check karein ke sach mein user ki valid items rows mojud hain ya nahi
+                    if (rows.length > 0 && rows[0].getElementsByClassName('row-desc').length > 0) {
+                        for (let i = 0; i < rows.length; i++) {
+                            const descEl = rows[i].getElementsByClassName('row-desc')[0];
+                            if (!descEl) continue;
+
+                            const name = descEl.textContent;
+                            const recVal = parseInt(document.getElementById(`lub_rec_${i}`)?.value) || 0;
+                            const saleVal = parseInt(document.getElementById(`lub_sale_${i}`)?.value) || 0;
+
+                            lubSales.push({ name: name, qty: saleVal });
+                            lubReceipts.push({ name: name, qty: recVal });
+                        }
+                    }
+                }
+
+                // Sirf tab call karein jab array mein sach mein items pack ho chukay hon
+                if (lubSales.length > 0 || lubReceipts.length > 0) {
+                    await fetch(`${API_URL}/update-lubricants`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ lubricant_sales: lubSales, lubricant_receipts: lubReceipts, userId: userId })
+                    });
+                }
+
+                nozzleConfigs.forEach(t => {
+                    const el = document.getElementById(t.inputId);
+                    if (el) el.value = "";
+                });
+                
+                alert("🎉 Shift Closed! Fuel metrics aur Mobil Oil Inventory sab data automatic safe synchronised update ho gaya hai.");
+
+                setTimeout(async () => {
+                    await loadCurrentStatusFromDB();
+                }, 500);
+
+            } catch (err) {
+                console.error("Save process broke down:", err);
+                alert("System error or connection field array layout mismatch.");
+                await loadCurrentStatusFromDB();
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const dateInput = document.getElementById('working_date');
+            if (dateInput) {
+                dateInput.value = getTodayDateString();
+                dateInput.addEventListener('change', loadCurrentStatusFromDB);
+            }
+            loadCurrentStatusFromDB();
+        });
+        
+
+
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+    // 1. LocalStorage se user ka data clear karen
+    localStorage.removeItem('user_id');
+    localStorage.removeItem('username');
+    
+    // Agar aap ne koi token ya extra data save kiya tha, toh poori storage bhi clear kar sakte hain:
+    // localStorage.clear();
+
+    // 2. Alert message (Optional)
+    alert("Aap successfully logout ho chuke hain!");
+
+    // 3. Wapas Login page par redirect karen
+    window.location.href = 'login.html'; 
+});
+    </script>
+</body>
+
+</html>

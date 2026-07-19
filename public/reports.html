@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bhatti Petroleum - Monthly Daily Report</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="style.css">
+
+</head>
+
+<body>
+    <div class="window-title">
+        <span>⛽ Bhatti Petroleum, BHOBRA - Report</span>
+        <button id="logoutBtn" class="btn btn-danger">
+            <i class="fas fa-sign-out-alt"></i> Logout
+        </button>
+    </div>
+
+    <div class="tabs-container">
+        <a href="dashboard.html" class="tab-btn">📊 Dashboard</a>
+        <a href="meter-reading.html" class="tab-btn">⛽ Meter Reading</a>
+        <a href="daily-sheet.html" class="tab-btn active">📝 Daily Sheet</a>
+        <a href="ledgers.html" class="tab-btn">📒 Ledgers</a>
+        <a href="pricing.html" class="tab-btn">📊 Pricing</a>
+        <a href="reports.html" class="tab-btn">📁 Reports</a>
+    </div>
+
+
+    <div class="dashboard-card">
+        <div class="card-header">
+            <span>📊 Petrol Pump Daily Credit & Debit Summary Report</span>
+            <button class="btn-filter" style="background-color: #27ae60;" onclick="fetchMonthlyData()">🔄 Refresh
+                Report</button>
+        </div>
+
+        <div class="filter-section">
+            <div class="form-group">
+                <label>📅 From Date:</label>
+                <input type="date" id="fromDate">
+            </div>
+            <div class="form-group">
+                <label>📅 To Date:</label>
+                <input type="date" id="toDate">
+            </div>
+            <button class="btn-filter" onclick="fetchMonthlyData()">🔍 Filter Report</button>
+        </div>
+
+        <div class="summary-grid">
+            <div class="card-stat credit">
+                <h4>Total Monthly Credit (Udhaar)</h4>
+                <div class="amount text-danger" id="widgetTotalCredit">0.00 PKR</div>
+            </div>
+            <div class="card-stat debit">
+                <h4>Total Monthly Received (Vasool)</h4>
+                <div class="amount text-success" id="widgetTotalDebit">0.00 PKR</div>
+            </div>
+            <div class="card-stat balance">
+                <h4>Net Total Outstanding</h4>
+                <div class="amount text-primary" id="widgetNetBalance">0.00 PKR</div>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <h3 style="margin-bottom: 12px; color: #2c3e50;">📋 Rozana Ka Khata (Daily Breakup)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th class="text-center">Date</th>
+                        <th class="text-right">Daily Credit / Udhaar (PKR)</th>
+                        <th class="text-right">Daily Received / Vasool (PKR)</th>
+                        <th class="text-right">Daily Balance (PKR)</th>
+                    </tr>
+                </thead>
+                <tbody id="dailyReportBody">
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td class="text-center">GRAND TOTAL</td>
+                        <td class="text-right text-danger" id="footTotalCredit">0.00 PKR</td>
+                        <td class="text-right text-success" id="footTotalDebit">0.00 PKR</td>
+                        <td class="text-right text-primary" id="footNetBalance">0.00 PKR</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Automatic Date Selection for Current Month
+        function setCurrentMonthDates() {
+            const now = new Date();
+            const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+            const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+            // Date format into YYYY-MM-DD
+            document.getElementById('fromDate').value = firstDay.toISOString().split('T')[0];
+            document.getElementById('toDate').value = lastDay.toISOString().split('T')[0];
+        }
+
+        // Fetch Live Monthly Data from Database
+        async function fetchMonthlyData() {
+            const fromDate = document.getElementById('fromDate').value;
+            const toDate = document.getElementById('toDate').value;
+            const userId = localStorage.getItem('userId'); // 🔥 LocalStorage se User ID nikaali
+
+            if (!fromDate || !toDate) {
+                alert("Dono dates select karein!");
+                return;
+            }
+
+            if (!userId) {
+                alert("User session expired! Dobara login karein.");
+                window.location.href = 'login.html';
+                return;
+            }
+
+            try {
+                // 🔥 URL ke end par `&userId=${userId}` append kar diya
+                const response = await fetch(`/api/report/daily-summary?fromDate=${fromDate}&toDate=${toDate}&userId=${userId}`);
+
+                if (!response.ok) {
+                    throw new Error("Server Response Error: " + response.statusText);
+                }
+
+                const data = await response.json();
+
+                // Render Live Database Data
+                renderTableAndTotals(data);
+
+            } catch (err) {
+                console.error("API Fetch Error:", err);
+                const tbody = document.getElementById('dailyReportBody');
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger">Database se live data fetch karne mein masla aaya hai. Check terminal logs!</td></tr>`;
+            }
+        }
+
+        // Render Table Rows & Compute Totals
+        function renderTableAndTotals(rows) {
+            const tbody = document.getElementById('dailyReportBody');
+            tbody.innerHTML = '';
+
+            let grandCredit = 0;
+            let grandDebit = 0;
+
+            if (!rows || rows.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center">Is date range mein koi daily sheet data nahi mila.</td></tr>`;
+
+                // Clear Stats
+                updateStatWidgets(0, 0, 0);
+                return;
+            }
+
+            rows.forEach(row => {
+                const credit = Number(row.total_credit || 0);
+                const debit = Number(row.total_debit || 0);
+                const balance = credit - debit;
+
+                grandCredit += credit;
+                grandDebit += debit;
+
+                // Date formatting to DD/MM/YYYY
+                const formattedDate = new Date(row.report_date).toLocaleDateString('en-GB');
+
+                tbody.innerHTML += `
+                <tr>
+                    <td class="text-center">${formattedDate}</td>
+                    <td class="text-right text-danger">${credit.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR</td>
+                    <td class="text-right text-success">${debit.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR</td>
+                    <td class="text-right font-weight-bold">${balance.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR</td>
+                </tr>
+            `;
+            });
+
+            const netBalance = grandCredit - grandDebit;
+            updateStatWidgets(grandCredit, grandDebit, netBalance);
+        }
+
+        // Helper Function to Update Top Stat Cards & Footer Totals
+        function updateStatWidgets(credit, debit, balance) {
+            // Update Stat Cards
+            document.getElementById('widgetTotalCredit').innerText = `${credit.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`;
+            document.getElementById('widgetTotalDebit').innerText = `${debit.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`;
+            document.getElementById('widgetNetBalance').innerText = `${balance.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`;
+
+            // Update Footer Table Row
+            document.getElementById('footTotalCredit').innerText = `${credit.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`;
+            document.getElementById('footTotalDebit').innerText = `${debit.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`;
+            document.getElementById('footNetBalance').innerText = `${balance.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`;
+        }
+
+        // Initialize Page
+        window.onload = () => {
+            setCurrentMonthDates();
+            fetchMonthlyData();
+        };
+
+
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            // 1. LocalStorage se user ka data clear karen
+            localStorage.removeItem('user_id');
+            localStorage.removeItem('username');
+
+            // Agar aap ne koi token ya extra data save kiya tha, toh poori storage bhi clear kar sakte hain:
+            // localStorage.clear();
+
+            // 2. Alert message (Optional)
+            alert("Aap successfully logout ho chuke hain!");
+
+            // 3. Wapas Login page par redirect karen
+            window.location.href = 'login.html';
+        });
+    </script>
+</body>
+
+</html>
