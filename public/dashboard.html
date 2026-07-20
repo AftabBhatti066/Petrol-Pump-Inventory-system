@@ -105,7 +105,10 @@
         let fuelChart = null;
 
         document.addEventListener('DOMContentLoaded', () => {
-            const today = new Date().toISOString().split('T')[0];
+            // 💡 FIXED: ISO format (YYYY-MM-DD) ko local timezone ke mutabiq adjust kiya hai
+            const tzOffset = (new Date()).getTimezoneOffset() * 60000; // local offset in milliseconds
+            const today = (new Date(Date.now() - tzOffset)).toISOString().split('T')[0];
+
             const dateInput = document.getElementById('dashDate');
             dateInput.value = today;
 
@@ -150,7 +153,7 @@
 
         function renderFuelStockTable(stocks, dispensed) {
             const tbody = document.getElementById('fuelStockBody');
-            tbody.innerHTML = ''; // Safely clears out existing entries
+            tbody.innerHTML = '';
 
             if (!stocks || stocks.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="4" class="text-center">No fuel stock configured in system.</td></tr>';
@@ -163,9 +166,17 @@
                 const tr = document.createElement('tr');
                 const currentStock = parseFloat(item.current_stock || 0);
 
-                // 💡 CASE-SENSITIVITY FIX: Fallback handle karne ke liye lowerCase aur direct checking dono laga di hain
+                // 💡 FIXED MAPPING: Frontend par key matching exact check kar rahe hain
                 const typeKey = item.fuel_type.toLowerCase().trim();
-                const dispensedQty = dispensed[typeKey] || dispensed[item.fuel_type] || 0;
+                let dispensedQty = 0;
+
+                if (typeKey.includes('diesel') || typeKey.includes('hsd')) {
+                    dispensedQty = dispensed.diesel || 0;
+                } else if (typeKey.includes('petrol') || typeKey.includes('super') || typeKey.includes('pmg')) {
+                    dispensedQty = dispensed.petrol || 0;
+                } else {
+                    dispensedQty = dispensed[typeKey] || dispensed[item.fuel_type] || 0;
+                }
 
                 const isLow = currentStock <= LOW_STOCK_THRESHOLD;
 
@@ -188,7 +199,7 @@
 
         function renderLubricantAlerts(lowItems) {
             const tbody = document.getElementById('lubricantAlertBody');
-            tbody.innerHTML = ''; // Clear table body to prevent duplicates
+            tbody.innerHTML = '';
 
             if (!lowItems || lowItems.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="3" style="color:#27ae60; font-weight:bold; text-align:center;">All Lubricants stock levels are sufficient.</td></tr>';
@@ -211,9 +222,9 @@
 
             if (fuelChart) fuelChart.destroy();
 
-            // 💡 CHART DATA INTEGRATION: Dono formats ('super' aur 'petrol') ko check karein taakay frontend par blank chart na aaye
-            const dieselData = dispensed.diesel || dispensed.Diesel || 0;
-            const petrolData = dispensed.petrol || dispensed.super || dispensed.Super || 0;
+            // 💡 FIXED: Direct lowercase properties read kar rahe hain jo backend se aa rahi hain
+            const dieselData = dispensed.diesel || 0;
+            const petrolData = dispensed.petrol || 0;
 
             fuelChart = new Chart(ctx, {
                 type: 'bar',
@@ -233,18 +244,12 @@
                 }
             });
         }
+
+        // 💡 FIXED: Logout listener ko renderFuelChart ke scope se bahar alag kiya
         document.getElementById('logoutBtn').addEventListener('click', () => {
-            // 1. LocalStorage se user ka data clear karen
-            localStorage.removeItem('user_id');
+            localStorage.removeItem('userId'); // Aap dashboard par 'userId' save kar rahe hain upper fetch mein
             localStorage.removeItem('username');
-
-            // Agar aap ne koi token ya extra data save kiya tha, toh poori storage bhi clear kar sakte hain:
-            // localStorage.clear();
-
-            // 2. Alert message (Optional)
             alert("Aap successfully logout ho chuke hain!");
-
-            // 3. Wapas Login page par redirect karen
             window.location.href = 'login.html';
         });
     </script>

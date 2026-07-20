@@ -22,7 +22,7 @@ app.use(express.urlencoded({ extended: true }));
 // Static files serve karna (HTML/CSS/JS)
 // 🔥 FIXED: index: false karne se auto index.html open hona band ho jata hai
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(path.join(__dirname, 'views'), { index: false }));
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 // Favicon 404 Error Ignore karne ke liye
 app.get('/favicon.ico', (req, res) => res.status(204).end());
@@ -72,27 +72,27 @@ app.use('/api/report', reportRoutes);
 
 // Login Page Route
 app.get('/login', (req, res) => {
-    res.sendFile(path.join(__dirname, 'views', 'login.html'));
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
 // Register Page Route
 app.get('/register', (req, res) => {
-    res.sendFile(path.join(__dirname, 'views', 'register.html'));
+    res.sendFile(path.join(__dirname, 'public', 'register.html'));
 });
 
 // Dashboard Page Route
 app.get('/dashboard', (req, res) => {
-    res.sendFile(path.join(__dirname, 'views', 'dashboard.html'));
+    res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
 });
 
 // Ledgers Page Route
 app.get('/ledgers', (req, res) => {
-    res.sendFile(path.join(__dirname, 'views', 'ledgers.html'));
+    res.sendFile(path.join(__dirname, 'public', 'ledgers.html'));
 });
 
 // Report Page Route
 app.get('/report', (req, res) => {
-    res.sendFile(path.join(__dirname, 'views', 'report.html'));
+    res.sendFile(path.join(__dirname, 'public', 'report.html'));
 });
 
 // ==========================================
