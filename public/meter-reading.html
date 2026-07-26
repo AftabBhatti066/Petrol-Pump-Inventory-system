@@ -6,9 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bhatti Petroleum, BHOBRA - [Daily Management Dashboard]</title>
     <link rel="stylesheet" href="style.css">
-    <style>
-        /* Styles yahan aap ke custom css se pull ho rahay hain */
-    </style>
+    <link rel="icon" type="image/png" href="/logo.png">
+
 </head>
 
 <body>
@@ -16,8 +15,8 @@
     <div class="window-title">
         <span>⛽ Bhatti Petroleum, BHOBRA - Meter Reading</span>
         <button id="logoutBtn" class="btn btn-danger">
-    <i class="fas fa-sign-out-alt"></i> Logout
-</button>
+            <i class="fas fa-sign-out-alt"></i> Logout
+        </button>
     </div>
 
     <div class="tabs-container">
@@ -65,12 +64,18 @@
                 </tr>
                 <tr>
                     <td class="row-desc">Closing Meter (Ltr)</td>
-                    <td><input type="number" id="close_diesel_n1" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
-                    <td><input type="number" id="close_diesel_n2" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
-                    <td><input type="number" id="close_diesel_n3" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
-                    <td><input type="number" id="close_diesel_n4" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
-                    <td><input type="number" id="close_super_n1" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
-                    <td><input type="number" id="close_super_n2" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" id="close_diesel_n1" class="matrix-input" oninput="calculateLiveSales()"
+                            placeholder="0"></td>
+                    <td><input type="number" id="close_diesel_n2" class="matrix-input" oninput="calculateLiveSales()"
+                            placeholder="0"></td>
+                    <td><input type="number" id="close_diesel_n3" class="matrix-input" oninput="calculateLiveSales()"
+                            placeholder="0"></td>
+                    <td><input type="number" id="close_diesel_n4" class="matrix-input" oninput="calculateLiveSales()"
+                            placeholder="0"></td>
+                    <td><input type="number" id="close_super_n1" class="matrix-input" oninput="calculateLiveSales()"
+                            placeholder="0"></td>
+                    <td><input type="number" id="close_super_n2" class="matrix-input" oninput="calculateLiveSales()"
+                            placeholder="0"></td>
                 </tr>
                 <tr style="background-color: #eaeded;">
                     <td class="row-desc">Calculated Sales (Ltr)</td>
@@ -106,8 +111,10 @@
                 </tr>
                 <tr>
                     <td class="row-desc">New Supply Receipt (+)</td>
-                    <td><input type="number" id="receipt_diesel" class="matrix-input" value="0" oninput="calculateLiveSales()"></td>
-                    <td><input type="number" id="receipt_super" class="matrix-input" value="0" oninput="calculateLiveSales()"></td>
+                    <td><input type="number" id="receipt_diesel" class="matrix-input" value="0"
+                            oninput="calculateLiveSales()"></td>
+                    <td><input type="number" id="receipt_super" class="matrix-input" value="0"
+                            oninput="calculateLiveSales()"></td>
                 </tr>
                 <tr style="background-color: #eaeded;">
                     <td class="row-desc">Sales Deductions (-)</td>
@@ -394,7 +401,7 @@
                 const lubSales = [];
                 const lubReceipts = [];
                 const tbody = document.getElementById('lubricantBody');
-                
+
                 if (tbody) {
                     const rows = tbody.getElementsByTagName('tr');
                     // Check karein ke sach mein user ki valid items rows mojud hain ya nahi
@@ -426,7 +433,7 @@
                     const el = document.getElementById(t.inputId);
                     if (el) el.value = "";
                 });
-                
+
                 alert("🎉 Shift Closed! Fuel metrics aur Mobil Oil Inventory sab data automatic safe synchronised update ho gaya hai.");
 
                 setTimeout(async () => {
@@ -448,23 +455,23 @@
             }
             loadCurrentStatusFromDB();
         });
-        
+
 
 
         document.getElementById('logoutBtn').addEventListener('click', () => {
-    // 1. LocalStorage se user ka data clear karen
-    localStorage.removeItem('user_id');
-    localStorage.removeItem('username');
-    
-    // Agar aap ne koi token ya extra data save kiya tha, toh poori storage bhi clear kar sakte hain:
-    // localStorage.clear();
+            // 1. LocalStorage se user ka data clear karen
+            localStorage.removeItem('user_id');
+            localStorage.removeItem('username');
 
-    // 2. Alert message (Optional)
-    alert("Aap successfully logout ho chuke hain!");
+            // Agar aap ne koi token ya extra data save kiya tha, toh poori storage bhi clear kar sakte hain:
+            // localStorage.clear();
 
-    // 3. Wapas Login page par redirect karen
-    window.location.href = 'login.html'; 
-});
+            // 2. Alert message (Optional)
+            alert("Aap successfully logout ho chuke hain!");
+
+            // 3. Wapas Login page par redirect karen
+            window.location.href = 'login.html';
+        });
     </script>
 </body>
 

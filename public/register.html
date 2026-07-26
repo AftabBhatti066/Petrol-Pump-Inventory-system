@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bhatti Petroleum - Register Account</title>
     <link rel="icon" href="data:,">
+    <link rel="icon" type="image/png" href="/logo.png">
+
     <style>
         * {
             box-sizing: border-box;
@@ -177,60 +179,60 @@
         </div>
     </div>
 
-   <script>
-    document.getElementById('registerForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
+    <script>
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
 
-        const fullName = document.getElementById('fullName').value;
-        const username = document.getElementById('username').value;
-        const password = document.getElementById('password').value;
-        const confirmPassword = document.getElementById('confirmPassword').value;
+            const fullName = document.getElementById('fullName').value;
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
 
-        if (password !== confirmPassword) {
-            showAlert("Passwords do not match!", "error");
-            return;
-        }
-
-        try {
-            // Full URL on Port 5000
-            const response = await fetch('http://localhost:5000/api/register', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    fullName: fullName,
-                    username: username,
-                    password: password
-                })
-            });
-
-            const data = await response.json();
-
-            if (response.ok && data.status === "Success") {
-                showAlert("Account created successfully! Redirecting to login...", "success");
-
-                document.getElementById('registerForm').reset();
-
-                setTimeout(() => {
-                    window.location.href = '/login.html';
-                }, 1500);
-            } else {
-                showAlert(data.message || "Registration failed!", "error");
+            if (password !== confirmPassword) {
+                showAlert("Passwords do not match!", "error");
+                return;
             }
-        } catch (err) {
-            console.error("Register Error:", err);
-            showAlert("Server Connection Failed!", "error");
-        }
-    });
 
-    function showAlert(msg, type) {
-        const alertMsg = document.getElementById('alertMsg');
-        alertMsg.innerText = msg;
-        alertMsg.className = `alert-msg ${type === 'error' ? 'alert-error' : 'alert-success'}`;
-        alertMsg.style.display = 'block';
-    }
-</script>
+            try {
+                // Full URL on Port 5000
+                const response = await fetch('http://localhost:5000/api/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        fullName: fullName,
+                        username: username,
+                        password: password
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.status === "Success") {
+                    showAlert("Account created successfully! Redirecting to login...", "success");
+
+                    document.getElementById('registerForm').reset();
+
+                    setTimeout(() => {
+                        window.location.href = '/login.html';
+                    }, 1500);
+                } else {
+                    showAlert(data.message || "Registration failed!", "error");
+                }
+            } catch (err) {
+                console.error("Register Error:", err);
+                showAlert("Server Connection Failed!", "error");
+            }
+        });
+
+        function showAlert(msg, type) {
+            const alertMsg = document.getElementById('alertMsg');
+            alertMsg.innerText = msg;
+            alertMsg.className = `alert-msg ${type === 'error' ? 'alert-error' : 'alert-success'}`;
+            alertMsg.style.display = 'block';
+        }
+    </script>
 
 </body>
 

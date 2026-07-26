@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bhatti Petroleum - System Login</title>
+    <link rel="icon" type="image/png" href="/logo.png">
     <style>
         * {
             box-sizing: border-box;
@@ -171,41 +172,41 @@
         </div>
     </div>
 
-  <script>
-    document.getElementById('loginForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const username = document.getElementById('username').value;
-        const password = document.getElementById('password').value;
-        const errorAlert = document.getElementById('errorAlert');
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
 
-        try {
-            // 🔥 FIXED: Absolute URL (localhost) ki jagah relative URL use kiya taakay Railway par b chalay
-            const response = await fetch('/api/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
-            });
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorAlert = document.getElementById('errorAlert');
 
-            const data = await response.json();
+            try {
+                // 🔥 FIXED: Absolute URL (localhost) ki jagah relative URL use kiya taakay Railway par b chalay
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
 
-            if (response.ok && data.status === "Success") {
-                // 🔥 FIXED: User ID ko browser ke localStorage mein save kar liya
-                localStorage.setItem('userId', data.user.id);
-                localStorage.setItem('username', data.user.name); // Optional: name b save krlety hain dashboard pr dikhany k liye
-                
-                window.location.href = 'dashboard.html'; 
-            } else {
-                errorAlert.innerText = data.message || "Invalid credentials!";
+                const data = await response.json();
+
+                if (response.ok && data.status === "Success") {
+                    // 🔥 FIXED: User ID ko browser ke localStorage mein save kar liya
+                    localStorage.setItem('userId', data.user.id);
+                    localStorage.setItem('username', data.user.name); // Optional: name b save krlety hain dashboard pr dikhany k liye
+
+                    window.location.href = 'dashboard.html';
+                } else {
+                    errorAlert.innerText = data.message || "Invalid credentials!";
+                    errorAlert.style.display = 'block';
+                }
+            } catch (err) {
+                console.error("Login Error:", err);
+                errorAlert.innerText = "Server Connection Failed!";
                 errorAlert.style.display = 'block';
             }
-        } catch (err) {
-            console.error("Login Error:", err);
-            errorAlert.innerText = "Server Connection Failed!";
-            errorAlert.style.display = 'block';
-        }
-    });
-</script>
+        });
+    </script>
 
 </body>
 
