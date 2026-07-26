@@ -3,7 +3,7 @@ const db = require('../config/db');
 exports.getDashboardData = async (req, res) => {
     try {
         const selectedDate = req.query.date || new Date().toISOString().split('T')[0];
-        // 🔥 FIXED: Frontend se aane wali userId ko catch kiya
+        // Frontend se aane wali userId ko catch kiya
         const userId = req.query.userId; 
 
         if (!userId) {

@@ -7,9 +7,7 @@ const DEFAULT_LUBRICANTS = [
     'Deo 8000 4Ltrs', 'Deo 8000 10Ltrs'
 ];
 
-// ==========================================
 // 1. GET ALL LATEST NOZZLE READINGS (Filtered by user_id)
-// ==========================================
 exports.getAllReadings = async (req, res) => {
     try {
         const userId = req.query.userId;
@@ -36,9 +34,7 @@ exports.getAllReadings = async (req, res) => {
     }
 };
 
-// ==========================================
 // 2. GET FUEL TANK STOCK (Filtered by user_id + Auto-Initialization)
-// ==========================================
 exports.getTankStock = async (req, res) => {
     try {
         const userId = req.query.userId;
@@ -65,9 +61,7 @@ exports.getTankStock = async (req, res) => {
     }
 };
 
-// ==========================================
 // 3. GET LUBRICANT STOCK (Filtered by user_id + Auto-Initialization)
-// ==========================================
 exports.getLubricantStock = async (req, res) => {
     try {
         const userId = req.query.userId;
@@ -94,9 +88,7 @@ exports.getLubricantStock = async (req, res) => {
     }
 };
 
-// ==========================================
 // 4. ADD NEW METER READING (Safe Insert & Deduct)
-// ==========================================
 exports.addReading = async (req, res) => {
     try {
         const { nozzle_name, fuel_type, closing_reading, reading_date, userId } = req.body;
@@ -135,9 +127,7 @@ exports.addReading = async (req, res) => {
     }
 };
 
-// ==========================================
 // 5. UPDATE TANK RECEIPTS (POST)
-// ==========================================
 exports.updateReceipt = async (req, res) => {
     try {
         const { fuel_type, receipt_liters, userId } = req.body;
@@ -159,9 +149,7 @@ exports.updateReceipt = async (req, res) => {
     }
 };
 
-// ==========================================
 // 6. BATCH UPDATE LUBRICANTS (POST)
-// ==========================================
 exports.updateLubricants = async (req, res) => {
     try {
         const { lubricant_sales, lubricant_receipts, userId } = req.body;

@@ -1,8 +1,6 @@
 const express = require('express');
 const router = express.Router();
 
-
-
 // Controller Functions Import
 const { registerUser, loginUser } = require('../controllers/authController');
 

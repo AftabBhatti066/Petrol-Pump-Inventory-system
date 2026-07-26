@@ -1,8 +1,6 @@
 const db = require('../config/db');
 
-// ==========================================
 // 1. VEHICLE REGISTRATION (Step 1 - Filtered by user_id)
-// ==========================================
 exports.registerVehicle = async (req, res) => {
     try {
         const { gari_number, owner_name, contact_number, address, userId } = req.body;
@@ -36,9 +34,7 @@ exports.registerVehicle = async (req, res) => {
     }
 };
 
-// ==========================================
 // 2. DAILY CREDIT FUEL LOG (Step 2 - Filtered by user_id)
-// ==========================================
 exports.logCreditFuel = async (req, res) => {
     try {
         const { gari_number, driver_name, product, litres, entry_date, userId } = req.body;
@@ -101,9 +97,7 @@ exports.logCreditFuel = async (req, res) => {
     }
 };
 
-// ==========================================
 // 3. GARI KA LEDGER / TAMAM HISTORY FETCH KARNA (Filtered by user_id)
-// ==========================================
 exports.getVehicleLedger = async (req, res) => {
     try {
         const { gari_number } = req.params;
@@ -167,9 +161,7 @@ exports.getVehicleLedger = async (req, res) => {
     }
 };
 
-// ==========================================
 // 4. KISI SPECIFIC CREDIT ENTRY KO DELETE KARNA (Filtered by user_id)
-// ==========================================
 exports.deleteCreditEntry = async (req, res) => {
     try {
         const { id } = req.params;

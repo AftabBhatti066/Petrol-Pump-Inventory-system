@@ -9,12 +9,17 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 🔥 FIXED: index: false karne se auto index.html open hona band ho jaye ga
-app.use(express.static(__dirname, { index: false }));
+// 1. Static files public folder se serve hon gi
+app.use(express.static(path.join(__dirname, 'public')));
 
-// 🎯 Ab yeh route bilkul sahi kaam karega aur seedha login page kholega
+// 2. Base route public folder se login.html uthayega
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'login.html'));
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+// 3. Directly /login par janay ke liye route
+app.get('/login', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
 // API Routes

@@ -1,96 +1,82 @@
-// 1. Express, Path & CORS library ko import karna
+// 0. Dotenv config
+require('dotenv').config();
+
+// 1. Imports
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
 
-// Database config ko import karna
+// 2. Database Config Import
 const db = require('./config/db');
 
-// 2. Express ki app create karna
+// 3. Express App Initialize (SUB SE PEHLE APP DEFINE HONI CHAHIYE)
 const app = express();
 
-// 3. Port number define karna
+// 4. Port Number Define
 const PORT = process.env.PORT || 5000;
 
-// CORS Middleware (Frontend-Backend Communication ke liye)
+// 5. Middlewares
 app.use(cors());
-
-// Middleware for JSON Body Parsing
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Static files serve karna (HTML/CSS/JS)
-// 🔥 FIXED: index: false karne se auto index.html open hona band ho jata hai
+// 6. Static Files Serve (public folder)
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
-// Favicon 404 Error Ignore karne ke liye
+// Favicon 404 Ignore
 app.get('/favicon.ico', (req, res) => res.status(204).end());
-
-// ==========================================
-// 🎯 DEFAULT BASE ROUTE (LINK OPEN HO TO SEEDHA LOGIN CHALE)
-// ==========================================
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'login.html'));
-});
 
 // ==========================================
 // API ROUTES SETUP
 // ==========================================
-
-// Auth Routes (Login & Register)
 const authRoutes = require('./routes/authRoutes');
 app.use('/api', authRoutes);
 
-// Fuel Pricing Routes
 const fuelRoutes = require('./routes/fuelRoutes');
 app.use('/api/fuel', fuelRoutes);
 
-// Meter Reading Routes
 const meterRoutes = require('./routes/meterRoutes');
 app.use('/api/meter', meterRoutes);
 
-// Ledger Routes
 const ledgerRoutes = require('./routes/ledgerRoutes');
 app.use('/api/ledger', ledgerRoutes);
 
-// Daily Sheet Routes
 const dailySheetRoutes = require('./routes/dailySheetRoutes');
 app.use('/api/daily-sheet', dailySheetRoutes);
 
-// Dashboard API Routes
 const dashboardRoutes = require('./routes/dashboardRoutes');
 app.use('/api/dashboard', dashboardRoutes);
 
-// Report API Routes
 const reportRoutes = require('./routes/reportRoutes'); 
 app.use('/api/report', reportRoutes);
 
 // ==========================================
 // HTML PAGE ROUTES (Views)
 // ==========================================
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
 
-// Login Page Route
 app.get('/login', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-// Register Page Route
+app.get('/login.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
 app.get('/register', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'register.html'));
 });
 
-// Dashboard Page Route
 app.get('/dashboard', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
 });
 
-// Ledgers Page Route
 app.get('/ledgers', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'ledgers.html'));
 });
 
-// Report Page Route
 app.get('/report', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'report.html'));
 });

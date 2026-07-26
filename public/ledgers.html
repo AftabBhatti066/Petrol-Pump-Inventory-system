@@ -147,7 +147,7 @@
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('entry_date').value = today;
 
-            // 🔥 Standardized to 'userId'
+            // Standardized to 'userId'
             const userId = localStorage.getItem('userId');
             if (!userId) {
                 alert("User session expired! Pehle login karein.");
