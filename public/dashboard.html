@@ -8,8 +8,6 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" type="image/png" href="/logo.png">
-
-
 </head>
 
 <body>
@@ -31,7 +29,6 @@
             <a href="pricing.html" class="tab-item">🏷️ Pricing</a>
             <a href="reports.html" class="tab-item">📁 Reports</a>
         </div>
-
 
         <div class="date-wrap">
             <span>Date: </span>
@@ -73,7 +70,7 @@
                 </thead>
                 <tbody id="fuelStockBody">
                     <tr>
-                        <td colspan="3">Fetching live stock readings...</td>
+                        <td colspan="4">Fetching live stock readings...</td>
                     </tr>
                 </tbody>
             </table>
@@ -110,8 +107,7 @@
         let fuelChart = null;
 
         document.addEventListener('DOMContentLoaded', () => {
-            // 💡 FIXED: ISO format (YYYY-MM-DD) ko local timezone ke mutabiq adjust kiya hai
-            const tzOffset = (new Date()).getTimezoneOffset() * 60000; // local offset in milliseconds
+            const tzOffset = (new Date()).getTimezoneOffset() * 60000;
             const today = (new Date(Date.now() - tzOffset)).toISOString().split('T')[0];
 
             const dateInput = document.getElementById('dashDate');
@@ -126,9 +122,12 @@
 
         async function fetchDashboardStats(selectedDate) {
             try {
-                const userId = localStorage.getItem('userId');
-                if (!userId) {
-                    window.location.href = '/login.html';
+                let userId = localStorage.getItem('userId');
+                
+                // Safety check: Agar userId undefined ya empty hai tou direct login screen par redirect karein
+                if (!userId || userId === 'undefined' || userId === 'null') {
+                    console.warn("User ID not found in LocalStorage. Redirecting to login...");
+                    window.location.href = 'login.html';
                     return;
                 }
 
@@ -136,20 +135,22 @@
                 const data = await response.json();
 
                 if (response.ok && data.status === "Success") {
-                    // Update KPI Cards
-                    document.getElementById('kpiUdhaar').innerText = `${data.financials.today_udhaar.toLocaleString()} PKR`;
-                    document.getElementById('kpiVasooli').innerText = `${data.financials.today_vasooli.toLocaleString()} PKR`;
-                    document.getElementById('kpiLedger').innerText = `${data.financials.today_credit_ledger_pkr.toLocaleString()} PKR`;
-                    document.getElementById('kpiCustomers').innerText = data.financials.total_customers;
+                    // KPI Cards Update
+                    document.getElementById('kpiUdhaar').innerText = `${(data.financials.today_udhaar || 0).toLocaleString()} PKR`;
+                    document.getElementById('kpiVasooli').innerText = `${(data.financials.today_vasooli || 0).toLocaleString()} PKR`;
+                    document.getElementById('kpiLedger').innerText = `${(data.financials.today_credit_ledger_pkr || 0).toLocaleString()} PKR`;
+                    document.getElementById('kpiCustomers').innerText = data.financials.total_customers || 0;
 
-                    // Render Fuel Stock Table
+                    // Fuel Stock Table Render
                     renderFuelStockTable(data.stocks, data.dispensed_fuel);
 
-                    // Render Low Lubricants Alert
+                    // Low Lubricants Alert Render
                     renderLubricantAlerts(data.low_lubricants);
 
-                    // Render Chart
+                    // Chart Render
                     renderFuelChart(data.dispensed_fuel);
+                } else {
+                    console.error("Backend Error:", data.message);
                 }
             } catch (err) {
                 console.error("Dashboard Sync Error:", err);
@@ -170,8 +171,6 @@
             stocks.forEach(item => {
                 const tr = document.createElement('tr');
                 const currentStock = parseFloat(item.current_stock || 0);
-
-                // 💡 FIXED MAPPING: Frontend par key matching exact check kar rahe hain
                 const typeKey = item.fuel_type.toLowerCase().trim();
                 let dispensedQty = 0;
 
@@ -186,18 +185,18 @@
                 const isLow = currentStock <= LOW_STOCK_THRESHOLD;
 
                 tr.innerHTML = `
-                <td><strong>${item.fuel_type}</strong></td>
-                <td style="font-weight:bold; color:${isLow ? '#c0392b' : '#1a2a6c'};">
-                    ${currentStock.toLocaleString()} Ltr
-                </td>
-                <td style="color:#27ae60; font-weight:bold;">${dispensedQty.toLocaleString()} Ltr</td>
-                <td>
-                    ${isLow
-                        ? '<span class="badge-low" style="background-color:#fce4e4; color:#c0392b; padding:2px 6px; border-radius:3px; font-weight:bold;">⚠️ Low Stock</span>'
-                        : '<span class="badge-good" style="background-color:#e8f8f5; color:#27ae60; padding:2px 6px; border-radius:3px; font-weight:bold;">Sufficient</span>'
-                    }
-                </td>
-            `;
+                    <td><strong>${item.fuel_type}</strong></td>
+                    <td style="font-weight:bold; color:${isLow ? '#c0392b' : '#1a2a6c'};">
+                        ${currentStock.toLocaleString()} Ltr
+                    </td>
+                    <td style="color:#27ae60; font-weight:bold;">${dispensedQty.toLocaleString()} Ltr</td>
+                    <td>
+                        ${isLow
+                            ? '<span class="badge-low" style="background-color:#fce4e4; color:#c0392b; padding:2px 6px; border-radius:3px; font-weight:bold;">⚠️ Low Stock</span>'
+                            : '<span class="badge-good" style="background-color:#e8f8f5; color:#27ae60; padding:2px 6px; border-radius:3px; font-weight:bold;">Sufficient</span>'
+                        }
+                    </td>
+                `;
                 tbody.appendChild(tr);
             });
         }
@@ -214,10 +213,10 @@
             lowItems.forEach(item => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                <td><strong>${item.item_name}</strong></td>
-                <td style="font-weight:bold; color:#c0392b;">${item.current_stock} Qty</td>
-                <td><span class="badge-low" style="background-color:#fce4e4; color:#c0392b; padding:2px 6px; border-radius:3px; font-weight:bold;">Low Stock Warning</span></td>
-            `;
+                    <td><strong>${item.item_name}</strong></td>
+                    <td style="font-weight:bold; color:#c0392b;">${item.current_stock} Qty</td>
+                    <td><span class="badge-low" style="background-color:#fce4e4; color:#c0392b; padding:2px 6px; border-radius:3px; font-weight:bold;">Low Stock Warning</span></td>
+                `;
                 tbody.appendChild(tr);
             });
         }
@@ -227,9 +226,8 @@
 
             if (fuelChart) fuelChart.destroy();
 
-            // 💡 FIXED: Direct lowercase properties read kar rahe hain jo backend se aa rahi hain
-            const dieselData = dispensed.diesel || 0;
-            const petrolData = dispensed.petrol || 0;
+            const dieselData = (dispensed && dispensed.diesel) ? dispensed.diesel : 0;
+            const petrolData = (dispensed && dispensed.petrol) ? dispensed.petrol : 0;
 
             fuelChart = new Chart(ctx, {
                 type: 'bar',
@@ -250,10 +248,8 @@
             });
         }
 
-        // 💡 FIXED: Logout listener ko renderFuelChart ke scope se bahar alag kiya
         document.getElementById('logoutBtn').addEventListener('click', () => {
-            localStorage.removeItem('userId'); // Aap dashboard par 'userId' save kar rahe hain upper fetch mein
-            localStorage.removeItem('username');
+            localStorage.clear();
             alert("Aap successfully logout ho chuke hain!");
             window.location.href = 'login.html';
         });

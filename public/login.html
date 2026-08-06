@@ -7,6 +7,19 @@
     <title>Bhatti Petroleum - System Login</title>
     <link rel="icon" type="image/png" href="/logo.png">
     <style>
+        :root {
+            --primary: #1a2a6c;
+            --primary-dark: #0d1840;
+            --accent: #b21f1f;
+            --accent-light: #fdbb2d;
+            --bg-card: #ffffff;
+            --text-main: #37474f;
+            --text-muted: #7f8c8d;
+            --border-color: #b0bec5;
+            --error-bg: #fce4e4;
+            --error-text: #c0392b;
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
@@ -14,57 +27,52 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
-       
-
         body {
-              height: 100vh;
+            height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-            /* Background Image Path */
-            background-image: url('/bg.png');
-
-            /* Photo stretch na ho aur puri screen par fit aaye */
+            background: linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url('/bg.png');
             background-size: cover;
-
-            /* Center mein align karein */
             background-position: center;
-
-            /* Scroll karne par background jagah par hi rahe */
             background-attachment: fixed;
-
-            /* Photo repeat na ho */
             background-repeat: no-repeat;
+            padding: 15px;
         }
 
         .login-card {
-            width: 380px;
-            background: #ffffff;
-            border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 400px;
+            background: var(--bg-card);
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
             overflow: hidden;
-            border: 1px solid #b0bec5;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(4px);
         }
 
         .login-header {
-            background: linear-gradient(135deg, #1a2a6c, #b21f1f, #fdbb2d);
+            background: linear-gradient(135deg, var(--primary), var(--accent), var(--accent-light));
             color: white;
-            padding: 20px;
+            padding: 24px 20px;
             text-align: center;
         }
 
         .login-header h2 {
-            font-size: 18px;
-            margin-bottom: 5px;
+            font-size: 20px;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
         }
 
         .login-header p {
             font-size: 11px;
             opacity: 0.9;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
         }
 
         .login-body {
-            padding: 25px 20px;
+            padding: 28px 24px;
         }
 
         .form-group {
@@ -74,129 +82,140 @@
         .form-group label {
             display: block;
             font-size: 12px;
-            font-weight: bold;
-            color: #37474f;
+            font-weight: 700;
+            color: var(--text-main);
             margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .form-group input {
             width: 100%;
-            padding: 9px 12px;
-            border: 1px solid #b0bec5;
-            border-radius: 4px;
-            font-size: 13px;
+            padding: 10px 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 14px;
             outline: none;
-            transition: border-color 0.2s;
+            transition: all 0.2s ease-in-out;
+            background-color: #fafafa;
         }
 
         .form-group input:focus {
-            border-color: #1a2a6c;
-            box-shadow: 0 0 4px rgba(26, 42, 108, 0.3);
+            border-color: var(--primary);
+            background-color: #ffffff;
+            box-shadow: 0 0 0 3px rgba(26, 42, 108, 0.15);
         }
 
         .btn-login {
             width: 100%;
-            padding: 10px;
-            background-color: #1a2a6c;
+            padding: 12px;
+            background-color: var(--primary);
             color: white;
             border: none;
-            border-radius: 4px;
-            font-weight: bold;
-            font-size: 13px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 14px;
             cursor: pointer;
-            transition: background 0.2s ease;
+            transition: background-color 0.2s ease, transform 0.1s ease;
+            margin-top: 5px;
         }
 
         .btn-login:hover {
-            background-color: #0d1840;
+            background-color: var(--primary-dark);
+        }
+
+        .btn-login:active {
+            transform: scale(0.99);
+        }
+
+        .btn-login:disabled {
+            background-color: #7f8c8d;
+            cursor: not-allowed;
+            opacity: 0.7;
         }
 
         .error-msg {
-            background-color: #fce4e4;
-            color: #c0392b;
-            padding: 8px;
-            border-radius: 4px;
+            background-color: var(--error-bg);
+            color: var(--error-text);
+            padding: 10px 12px;
+            border-radius: 6px;
             font-size: 12px;
-            font-weight: bold;
-            margin-bottom: 15px;
+            font-weight: 600;
+            margin-bottom: 18px;
             text-align: center;
             display: none;
-        }
-
-        /* Register Link Area Styling */
-        .register-link {
-            text-align: center;
-            margin-top: 15px;
-            font-size: 12px;
-            color: #555555;
-        }
-
-        .register-link a {
-            color: #1a2a6c;
-            font-weight: bold;
-            text-decoration: none;
-        }
-
-        .register-link a:hover {
-            text-decoration: underline;
+            border: 1px solid rgba(192, 57, 43, 0.2);
         }
 
         .login-footer {
-            background-color: #f1f4f6;
-            padding: 10px;
+            background-color: #f8fafc;
+            padding: 12px;
             text-align: center;
             font-size: 11px;
-            color: #7f8c8d;
-            border-top: 1px solid #cfd8dc;
+            color: var(--text-muted);
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .status-dot {
+            height: 8px;
+            width: 8px;
+            background-color: #2ec4b6;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 4px;
         }
     </style>
 </head>
 
 <body>
 
-    <div class="login-card">
-        <div class="login-header">
+    <main class="login-card">
+        <header class="login-header">
             <h2>⛽ Bhatti Petroleum</h2>
             <p>BHOBRA - Integrated Management System v2.0</p>
-        </div>
+        </header>
 
-        <div class="login-body">
-            <div id="errorAlert" class="error-msg">Incorrect Username or Password!</div>
+        <section class="login-body">
+            <div id="errorAlert" class="error-msg" role="alert" aria-live="assertive">Incorrect Username or Password!</div>
 
-            <form id="loginForm">
+            <form id="loginForm" autocomplete="on">
                 <div class="form-group">
                     <label for="username">Username / ID</label>
-                    <input type="text" id="username" placeholder="Enter your username" required>
+                    <input type="text" id="username" name="username" placeholder="Enter your username" required autocomplete="username">
                 </div>
 
                 <div class="form-group">
                     <label for="password">Password</label>
-                    <input type="password" id="password" placeholder="Enter password" required>
+                    <input type="password" id="password" name="password" placeholder="Enter password" required autocomplete="current-password">
                 </div>
 
-                <button type="submit" class="btn-login">Login to Dashboard</button>
+                <button type="submit" id="submitBtn" class="btn-login">Login to Dashboard</button>
             </form>
+        </section>
 
-            <!-- <div class="register-link">
-                Don't have an account? <a href="register.html">Register Here</a>
-            </div> -->
-        </div>
-
-        <div class="login-footer">
-            Authorized Personnel Only &bull; System Status: Online
-        </div>
-    </div>
+        <footer class="login-footer">
+            Authorized Personnel Only &bull; <span class="status-dot"></span> System Status: Online
+        </footer>
+    </main>
 
     <script>
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
 
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
+            const usernameInput = document.getElementById('username');
+            const passwordInput = document.getElementById('password');
             const errorAlert = document.getElementById('errorAlert');
+            const submitBtn = document.getElementById('submitBtn');
+
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value;
+
+            errorAlert.style.display = 'none';
+            submitBtn.disabled = true;
+            submitBtn.innerText = 'Authenticating...';
 
             try {
-                // 🔥 FIXED: Absolute URL (localhost) ki jagah relative URL use kiya taakay Railway par b chalay
+                // Verified active endpoint
                 const response = await fetch('/api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -206,9 +225,14 @@
                 const data = await response.json();
 
                 if (response.ok && data.status === "Success") {
-                    // 🔥 FIXED: User ID ko browser ke localStorage mein save kar liya
                     localStorage.setItem('userId', data.user.id);
-                    localStorage.setItem('username', data.user.name); // Optional: name b save krlety hain dashboard pr dikhany k liye
+                    
+                    if (data.user.name) {
+                        localStorage.setItem('username', data.user.name);
+                    }
+                    if (data.user.role) {
+                        localStorage.setItem('userRole', data.user.role);
+                    }
 
                     window.location.href = 'dashboard.html';
                 } else {
@@ -219,6 +243,9 @@
                 console.error("Login Error:", err);
                 errorAlert.innerText = "Server Connection Failed!";
                 errorAlert.style.display = 'block';
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerText = 'Login to Dashboard';
             }
         });
     </script>
