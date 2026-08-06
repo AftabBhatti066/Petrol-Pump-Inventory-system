@@ -6,9 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bhatti Petroleum, BHOBRA - [Daily Management Dashboard]</title>
     <link rel="stylesheet" href="style.css">
-        <link rel="icon" type="image/png" href="/logo.png">
-
-
+    <link rel="icon" type="image/png" href="/logo.png">
 </head>
 
 <body>
@@ -20,39 +18,34 @@
         </button>
     </div>
 
-
-
     <div class="tabs-container">
-        <a href="dashboard.html" class="tab-btn">📊 Dashboard</a>
-        <a href="meter-reading.html" class="tab-btn">⛽ Meter Reading</a>
-        <a href="daily-sheet.html" class="tab-btn active">📝 Daily Sheet</a>
-        <a href="ledgers.html" class="tab-btn">📒 Ledgers</a>
-        <a href="pricing.html" class="tab-btn">📊 Pricing</a>
-        <a href="reports.html" class="tab-btn">📁 Reports</a>
+        <a href="dashboard.html" class="tab-item">📊 Dashboard</a>
+        <a href="meter-reading.html" class="tab-item">⛽ Meter Reading</a>
+        <a href="daily-sheet.html" class="tab-item active">📝 Daily Sheet</a>
+        <a href="expenses.html" class="tab-item">🏷️ Expense</a>
+        <a href="ledgers.html" class="tab-item">📒 Ledgers</a>
+        <a href="pricing.html" class="tab-item">🏷️ Pricing</a>
+        <a href="reports.html" class="tab-item">📁 Reports</a>
     </div>
 
     <div class="meta-header">
         <div><strong>Date:</strong> <input type="date" id="working_date" onchange="loadSheetByDate()"></div>
-
     </div>
 
     <div class="section-header-box">
-        <span>Daily Sheet (Customer Accounts & Memory Lock)</span>
+        <span>Daily Sheet (Active Entries Only Mode)</span>
         <span style="font-weight: normal; font-size: 12px;">Status: Realtime Dynamic Triggers Fixed</span>
     </div>
 
     <div class="control-panel">
-        <div class="filter-group">
-            <span>🔍 Filter ID:</span>
-            <input type="text" id="filter_id" class="filter-input" placeholder="e.g. mh" oninput="filterTable()">
-        </div>
-
         <div class="add-cust-group">
             <span style="color: #6c3483; font-weight: bold;">+ New Cust:</span>
             <input type="text" id="new_cust_name" placeholder="Name" style="width: 180px;">
             <input type="text" id="new_cust_id" placeholder="ID (e.g. m)" style="width: 80px;">
-            <button class="btn-add" onclick="addNewCustomer()">Add</button>
+            <button class="btn-add" onclick="addNewCustomer()">Add Master Cust</button>
         </div>
+
+        
 
         <button class="btn-save-sheet" onclick="saveAllSheetEntries()">💾 Save Daily Sheet</button>
     </div>
@@ -60,12 +53,12 @@
     <table class="sheet-table">
         <thead>
             <tr>
-                <th style="width: 32%;">Customer Name</th>
+                <th style="width: 5%;">Sr #</th>
                 <th style="width: 15%;">Search ID</th>
-                <th style="width: 18%;">Debit (Udhaar)</th>
-                <th style="width: 18%;">Credit (Vasooli)</th>
-                <th style="width: 10%;">Total</th>
-                <th style="width: 7%;">Action</th>
+                <th style="width: 25%;">Customer Name</th>
+                <th style="width: 29%;">Description</th>
+                <th style="width: 13%;">Debit (Udhaar)</th>
+                <th style="width: 13%;">Credit (Vasooli)</th>
             </tr>
         </thead>
         <tbody id="sheetTableBody">
@@ -83,8 +76,13 @@
         </div>
     </div>
 
-    <script>
+  <script>
         const API_URL = '/api/daily-sheet';
+        let customerMap = {};
+
+        // Opening Cumulative Debit & Credit values from previous days
+        let globalOpeningDebit = 0;
+        let globalOpeningCredit = 0;
 
         function getTodayDateString() {
             const today = new Date();
@@ -94,25 +92,90 @@
             return `${year}-${month}-${day}`;
         }
 
+        async function loadCustomerMasterMap() {
+            const userId = localStorage.getItem('userId');
+            if (!userId) return;
+
+            customerMap = {};
+
+            try {
+                const res = await fetch(`/api/daily-sheet/customers?userId=${userId}`);
+                if (res.ok) {
+                    const result = await res.json();
+                    const customers = result.data || result.customers || [];
+
+                    if (Array.isArray(customers)) {
+                        customers.forEach(c => {
+                            const sId = c.search_id || c.searchId || '';
+                            const cName = c.customer_name || c.name || '';
+                            if (sId) {
+                                customerMap[String(sId).trim().toLowerCase()] = String(cName).trim();
+                            }
+                        });
+                    }
+                }
+            } catch (err) {
+                console.warn("Failed to fetch customer map:", err);
+            }
+        }
+
         async function loadSheetByDate() {
             const dateInput = document.getElementById('working_date');
             if (!dateInput || !dateInput.value) return;
 
             const currentDate = dateInput.value;
-            // 🔥 FIXED: LocalStorage se userId li
             const userId = localStorage.getItem('userId');
-            if (!userId) { window.location.href = '/login.html'; return; }
+            if (!userId) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            await loadCustomerMasterMap();
 
             try {
-                // 🔥 FIXED: URL mein userId pass ki taakay sirf is user ke customers/entries aayin
                 const response = await fetch(`${API_URL}/view/${currentDate}?userId=${userId}`);
                 const result = await response.json();
 
-                if (result.status === "Success") {
-                    renderTableRows(result.entries);
+                const entriesData = result.entries || result.data || (Array.isArray(result) ? result : []);
+
+                if ((result.status === "Success" || response.ok) && Array.isArray(entriesData)) {
+                    entriesData.forEach(entry => {
+                        if (entry.search_id && entry.customer_name) {
+                            const cleanId = String(entry.search_id).trim().toLowerCase();
+                            customerMap[cleanId] = String(entry.customer_name).trim();
+                        }
+                    });
+
+                    // Match Backend Response keys for Cumulative Opening Totals
+                    globalOpeningDebit = parseFloat(result.opening_debit) || 0;
+                    globalOpeningCredit = parseFloat(result.opening_credit) || 0;
+
+                    // Filter out non-used rows
+                    const activeEntries = entriesData.filter(entry => {
+                        const debit = parseFloat(entry.debit_udhaar) || 0;
+                        const credit = parseFloat(entry.credit_vasooli) || 0;
+                        const desc = entry.description ? String(entry.description).trim() : '';
+                        return debit > 0 || credit > 0 || desc.length > 0;
+                    });
+
+                    renderTableRows(activeEntries);
+
+                    const opening = parseFloat(result.opening_balance) || 0;
+                    const closing = parseFloat(result.closing_balance) || 0;
+                    updateOpeningAndClosingUI(opening, closing);
+
+                } else {
+                    globalOpeningDebit = 0;
+                    globalOpeningCredit = 0;
+                    renderTableRows([]);
+                    updateOpeningAndClosingUI(0, 0);
                 }
             } catch (err) {
-                console.error("Connection error:", err);
+                console.error("Sheet load error:", err);
+                globalOpeningDebit = 0;
+                globalOpeningCredit = 0;
+                renderTableRows([]);
+                updateOpeningAndClosingUI(0, 0);
             }
         }
 
@@ -121,37 +184,122 @@
             tbody.innerHTML = "";
 
             if (!entries || entries.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" class="text-center" style="padding: 15px; color: #7f8c8d;">Pehle <b>+ New Cust</b> section se customers add karein.</td></tr>`;
+                addNewEmptyRow(false);
                 recalculateTotals();
                 return;
             }
 
-            entries.forEach((row) => {
-                const tr = document.createElement('tr');
-                tr.setAttribute('data-search-id', row.search_id.toLowerCase());
-                tr.setAttribute('data-db-id', row.id);
-
-                const debitVal = parseFloat(row.debit_udhaar) || 0;
-                const creditVal = parseFloat(row.credit_vasooli) || 0;
-                const totalVal = debitVal - creditVal;
-
-                tr.innerHTML = `
-                <td class="text-bold cust-name-cell">${row.customer_name}</td>
-                <td class="text-center text-bold search-id-cell">${row.search_id}</td>
-                <td><input type="number" class="sheet-input input-debit" value="${debitVal}" oninput="recalculateTotals()"></td>
-                <td><input type="number" class="sheet-input input-credit" value="${creditVal}" oninput="recalculateTotals()"></td>
-                <td class="text-right text-bold row-total">${totalVal}</td>
-                <td class="text-center"><span class="btn-delete" onclick="deleteEntry(event, ${row.id}, '${row.search_id}')">[X]</span></td>
-            `;
-                tbody.appendChild(tr);
+            entries.forEach((row, index) => {
+                appendRowToTable(row, index + 1, false);
             });
 
+            addNewEmptyRow(false);
             recalculateTotals();
         }
 
+        function appendRowToTable(data = {}, srNo = 1, shouldFocus = false) {
+            const tbody = document.getElementById('sheetTableBody');
+            const tr = document.createElement('tr');
+
+            const searchIdVal = data.search_id ? String(data.search_id).trim() : '';
+            const searchIdKey = searchIdVal.toLowerCase();
+
+            if (data.id) tr.setAttribute('data-db-id', data.id);
+            tr.setAttribute('data-search-id', searchIdKey);
+
+            const debitVal = (data.debit_udhaar !== undefined && data.debit_udhaar !== null && parseFloat(data.debit_udhaar) !== 0) ? data.debit_udhaar : '';
+            const creditVal = (data.credit_vasooli !== undefined && data.credit_vasooli !== null && parseFloat(data.credit_vasooli) !== 0) ? data.credit_vasooli : '';
+            const descVal = data.description ? String(data.description) : '';
+            const custName = customerMap[searchIdKey] || data.customer_name || '';
+
+            tr.innerHTML = `
+                <td class="text-center text-bold serial-no">${srNo}</td>
+                <td class="text-center">
+                    <input type="text" class="sheet-input input-search-id" value="${searchIdVal}" placeholder="Search ID" oninput="onSearchIdInput(this)" onkeydown="handleEnterNavigation(event, 'search_id')">
+                </td>
+                <td>
+                    <input type="text" class="sheet-input input-cust-name" value="${custName}" placeholder="Auto Name" readonly style="background-color: #f8f9fa; font-weight: bold; color: #000;">
+                </td>
+                <td>
+                    <input type="text" class="sheet-input input-description" value="${descVal}" placeholder="Detail..." onkeydown="handleEnterNavigation(event, 'desc')">
+                </td>
+                <td>
+                    <input type="number" class="sheet-input input-debit" value="${debitVal}" placeholder="0" oninput="recalculateTotals()" onkeydown="handleEnterNavigation(event, 'debit')">
+                </td>
+                <td>
+                    <input type="number" class="sheet-input input-credit" value="${creditVal}" placeholder="0" oninput="recalculateTotals()" onkeydown="handleEnterNavigation(event, 'credit')">
+                </td>
+            `;
+
+            tbody.appendChild(tr);
+
+            if (shouldFocus) {
+                const searchInput = tr.querySelector('.input-search-id');
+                if (searchInput) searchInput.focus();
+            }
+        }
+
+        function addNewEmptyRow(focusNew = true) {
+            const tbody = document.getElementById('sheetTableBody');
+            const srNo = tbody.querySelectorAll('tr').length + 1;
+            appendRowToTable({}, srNo, focusNew);
+        }
+
+        function onSearchIdInput(inputElem) {
+            const tr = inputElem.closest('tr');
+            const searchVal = String(inputElem.value).trim().toLowerCase();
+            const nameInput = tr.querySelector('.input-cust-name');
+
+            tr.setAttribute('data-search-id', searchVal);
+
+            if (searchVal === '') {
+                nameInput.value = '';
+                nameInput.style.color = '#000';
+            } else if (customerMap[searchVal]) {
+                nameInput.value = customerMap[searchVal];
+                nameInput.style.color = '#000';
+            } else {
+                nameInput.value = 'Not Found';
+                nameInput.style.color = '#c0392b';
+            }
+        }
+
+        function isRowFilled(tr) {
+            const searchId = tr.querySelector('.input-search-id')?.value.trim() || '';
+            const desc = tr.querySelector('.input-description')?.value.trim() || '';
+            const debit = parseFloat(tr.querySelector('.input-debit')?.value) || 0;
+            const credit = parseFloat(tr.querySelector('.input-credit')?.value) || 0;
+
+            return searchId !== '' || desc !== '' || debit > 0 || credit > 0;
+        }
+
+        function handleEnterNavigation(event, fieldType) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const tr = event.target.closest('tr');
+
+                if (fieldType === 'search_id') {
+                    tr.querySelector('.input-description').focus();
+                } else if (fieldType === 'desc') {
+                    tr.querySelector('.input-debit').focus();
+                } else if (fieldType === 'debit') {
+                    tr.querySelector('.input-credit').focus();
+                } else if (fieldType === 'credit') {
+                    if (!isRowFilled(tr)) return;
+
+                    const nextTr = tr.nextElementSibling;
+                    if (nextTr) {
+                        nextTr.querySelector('.input-search-id').focus();
+                    } else {
+                        addNewEmptyRow(true);
+                    }
+                }
+            }
+        }
+
         function recalculateTotals() {
-            let grandDebit = 0;
-            let grandCredit = 0;
+            let grandDebit = globalOpeningDebit;
+            let grandCredit = globalOpeningCredit;
 
             const tbody = document.getElementById('sheetTableBody');
             const rows = tbody.querySelectorAll('tr');
@@ -159,38 +307,43 @@
             rows.forEach(tr => {
                 const debitInput = tr.querySelector('.input-debit');
                 const creditInput = tr.querySelector('.input-credit');
-                const totalCell = tr.querySelector('.row-total');
 
                 if (debitInput && creditInput) {
                     const debit = parseFloat(debitInput.value) || 0;
                     const credit = parseFloat(creditInput.value) || 0;
-
-                    const rowTotal = debit - credit;
-                    totalCell.textContent = rowTotal;
 
                     grandDebit += debit;
                     grandCredit += credit;
                 }
             });
 
-            document.getElementById('lbl_total_debit').textContent = grandDebit.toLocaleString();
-            document.getElementById('lbl_total_credit').textContent = grandCredit.toLocaleString();
-            document.getElementById('lbl_net_income').textContent = grandCredit.toLocaleString();
+            const lblDebit = document.getElementById('lbl_total_debit');
+            const lblCredit = document.getElementById('lbl_total_credit');
+            if (lblDebit) lblDebit.textContent = grandDebit.toLocaleString();
+            if (lblCredit) lblCredit.textContent = grandCredit.toLocaleString();
+
+            const dayNet = grandCredit - grandDebit;
+            const lblOpening = document.getElementById('lbl_opening_balance');
+            const openingVal = lblOpening ? (parseFloat(lblOpening.getAttribute('data-value')) || 0) : 0;
+            const finalClosing = openingVal + dayNet;
+
+            const lblNet = document.getElementById('lbl_net_income');
+            if (lblNet) {
+                lblNet.textContent = finalClosing.toLocaleString() + " PKR";
+            }
         }
 
-        function filterTable() {
-            const query = document.getElementById('filter_id').value.trim().toLowerCase();
-            const tbody = document.getElementById('sheetTableBody');
-            const rows = tbody.querySelectorAll('tr');
+        function updateOpeningAndClosingUI(opening, closing) {
+            const lblOpening = document.getElementById('lbl_opening_balance');
+            if (lblOpening) {
+                lblOpening.setAttribute('data-value', opening);
+                lblOpening.textContent = opening.toLocaleString() + " PKR";
+            }
 
-            rows.forEach(tr => {
-                const searchId = tr.getAttribute('data-search-id');
-                if (searchId && searchId.includes(query)) {
-                    tr.style.display = '';
-                } else if (searchId) {
-                    tr.style.display = 'none';
-                }
-            });
+            const lblNet = document.getElementById('lbl_net_income');
+            if (lblNet) {
+                lblNet.textContent = closing.toLocaleString() + " PKR";
+            }
         }
 
         async function addNewCustomer() {
@@ -207,15 +360,15 @@
                 const res = await fetch(`${API_URL}/customer`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    // 🔥 FIXED: Body mein userId bhej di taakay customer us unique manager se map ho
                     body: JSON.stringify({ customer_name: name, search_id: searchId, userId: userId })
                 });
 
                 const result = await res.json();
-                if (result.status === "Success") {
+                if (result.status === "Success" || res.ok) {
                     document.getElementById('new_cust_name').value = "";
                     document.getElementById('new_cust_id').value = "";
-                    await loadSheetByDate();
+                    customerMap[searchId.toLowerCase()] = name;
+                    alert("Customer Master List mein add ho gaya!");
                 } else {
                     alert("Error: " + (result.message || result.db_error));
                 }
@@ -235,19 +388,29 @@
             const entries = [];
 
             rows.forEach(tr => {
-                const custNameCell = tr.querySelector('.cust-name-cell');
-                const searchIdCell = tr.querySelector('.search-id-cell');
+                const searchIdInput = tr.querySelector('.input-search-id');
+                const custNameInput = tr.querySelector('.input-cust-name');
+                const descInput = tr.querySelector('.input-description');
                 const debitInput = tr.querySelector('.input-debit');
                 const creditInput = tr.querySelector('.input-credit');
 
-                if (searchIdCell && debitInput && creditInput) {
+                const searchId = searchIdInput ? searchIdInput.value.trim() : '';
+                const custName = custNameInput ? custNameInput.value.trim() : '';
+                const descVal = descInput ? descInput.value.trim() : '';
+                const debitVal = parseFloat(debitInput ? debitInput.value : 0) || 0;
+                const creditVal = parseFloat(creditInput ? creditInput.value : 0) || 0;
+
+                if (searchId !== '' || descVal !== '' || debitVal > 0 || creditVal > 0) {
                     entries.push({
-                        customer_name: custNameCell ? custNameCell.textContent.trim() : '',
-                        search_id: searchIdCell.textContent.trim(),
-                        debit_udhaar: parseFloat(debitInput.value) || 0,
-                        credit_vasooli: parseFloat(creditInput.value) || 0,
+                        search_id: searchId,
+                        customer_name: custName,
+                        description: descVal,
+                        debit_udhaar: debitVal,
+                        credit_vasooli: creditVal,
+                        debit: debitVal,
+                        credit: creditVal,
                         sheet_date: currentDate,
-                        userId: userId // 🔥 FIXED: Har row batch entry mein manager ID include ki
+                        userId: userId
                     });
                 }
             });
@@ -260,8 +423,8 @@
                 });
 
                 const result = await res.json();
-                if (result.status === "Success") {
-                    alert("🎉 Data Kamyabi se Save Ho Gaya!");
+                if (result.status === "Success" || res.ok) {
+                    alert("🎉 Data Save Ho Gaya!");
                     await loadSheetByDate();
                 } else {
                     alert("Error: " + (result.message || result.db_error));
@@ -271,52 +434,27 @@
             }
         }
 
-        async function deleteEntry(event, id, searchId) {
-            if (event) event.stopPropagation();
-            const userId = localStorage.getItem('userId');
-
-            const choice = confirm(`Customer (${searchId}) ko delete karna chahte hain?`);
-            if (!choice) return;
-
-            try {
-                // 🔥 FIXED: Delete request ke sath query string parameter mein userId bhej di
-                const res = await fetch(`${API_URL}/delete-customer/${searchId}?userId=${userId}`, { method: 'DELETE' });
-                const result = await res.json();
-
-                if (result.status === "Success") {
-                    await loadSheetByDate();
-                } else {
-                    alert(result.message || result.db_error);
-                }
-            } catch (err) {
-                console.error("Delete error:", err);
-            }
-        }
-
         document.addEventListener('DOMContentLoaded', () => {
             const dateInput = document.getElementById('working_date');
             if (dateInput) {
                 dateInput.value = getTodayDateString();
-                dateInput.addEventListener('change', loadSheetByDate);
+                dateInput.addEventListener('change', () => {
+                    loadSheetByDate();
+                });
             }
             loadSheetByDate();
+
+            const logoutBtn = document.getElementById('logoutBtn');
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', () => {
+                    localStorage.removeItem('userId');
+                    localStorage.removeItem('username');
+                    alert("Aap successfully logout ho chuke hain!");
+                    window.location.href = 'login.html';
+                });
+            }
         });
-
-        document.getElementById('logoutBtn').addEventListener('click', () => {
-    // 1. LocalStorage se user ka data clear karen
-    localStorage.removeItem('user_id');
-    localStorage.removeItem('username');
-    
-    // Agar aap ne koi token ya extra data save kiya tha, toh poori storage bhi clear kar sakte hain:
-    // localStorage.clear();
-
-    // 2. Alert message (Optional)
-    alert("Aap successfully logout ho chuke hain!");
-
-    // 3. Wapas Login page par redirect karen
-    window.location.href = 'login.html'; 
-});
-    </script>
+</script>
 </body>
 
 </html>

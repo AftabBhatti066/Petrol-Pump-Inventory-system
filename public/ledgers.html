@@ -7,149 +7,196 @@
     <title>Bhatti Petroleum - Ledgers</title>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" type="image/png" href="/logo.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        /* Print Specific Styling */
+        @media print {
+            body {
+                background: #fff !important;
+                color: #000 !important;
+                margin: 0;
+                padding: 10px;
+            }
 
+            .window-title,
+            .tabs-container,
+            .search-container,
+            .no-print {
+                display: none !important;
+            }
 
+            #ledgerSection {
+                display: block !important;
+            }
+
+            .print-header {
+                display: block !important;
+                text-align: center;
+                margin-bottom: 20px;
+                border-bottom: 2px solid #000;
+                padding-bottom: 10px;
+            }
+
+            .sheet-table {
+                width: 100% !important;
+                border-collapse: collapse !important;
+                font-size: 12px !important;
+            }
+
+            .sheet-table th,
+            .sheet-table td {
+                border: 1px solid #000 !important;
+                padding: 6px 8px !important;
+                color: #000 !important;
+            }
+
+            .summary-bar {
+                border: 1px solid #000 !important;
+                background: #fff !important;
+                color: #000 !important;
+                margin-top: 15px !important;
+            }
+        }
+
+        .print-header {
+            display: none;
+        }
+
+        .search-box-card {
+            background: #ffffff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+            max-width: 650px;
+            margin: 30px auto;
+            border: 1px solid #e0e0e0;
+        }
+
+        .search-input-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .search-input-group input {
+            flex: 1;
+            padding: 12px;
+            font-size: 15px;
+            border: 2px solid #1c3b5e;
+            border-radius: 6px;
+            outline: none;
+        }
+
+        .btn-search {
+            background-color: #1c3b5e;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .btn-search:hover {
+            background-color: #0f2338;
+        }
+
+        .btn-print {
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            float: right;
+            margin-bottom: 10px;
+        }
+
+        .btn-print:hover {
+            background-color: #1e8449;
+        }
+    </style>
 </head>
 
 <body>
 
-
     <div class="window-title">
-        <span>⛽ Bhatti Petroleum, BHOBRA - Ledger</span>
+        <span>⛽ Bhatti Petroleum, BHOBRA - Ledger Account</span>
         <button id="logoutBtn" class="btn btn-danger">
             <i class="fas fa-sign-out-alt"></i> Logout
         </button>
     </div>
 
-
     <div class="tabs-container">
-        <a href="dashboard.html" class="tab-btn">📊 Dashboard</a>
-        <a href="meter-reading.html" class="tab-btn">⛽ Meter Reading</a>
-        <a href="daily-sheet.html" class="tab-btn">📝 Daily Sheet</a>
-        <a href="ledgers.html" class="tab-btn">📒 Ledgers</a>
-        <a href="pricing.html" class="tab-btn active">📊 Pricing</a>
-        <a href="reports.html" class="tab-btn">📁 Reports</a>
+        <a href="dashboard.html" class="tab-item">📊 Dashboard</a>
+        <a href="meter-reading.html" class="tab-item">⛽ Meter Reading</a>
+        <a href="daily-sheet.html" class="tab-item">📝 Daily Sheet</a>
+
+        <a href="expenses.html" class="tab-item">🏷️ Expense</a>
+        <a href="ledgers.html" class="tab-item active">📒 Ledgers</a>
+        <a href="pricing.html" class="tab-item">🏷️ Pricing</a>
+        <a href="reports.html" class="tab-item">📁 Reports</a>
     </div>
 
-    <!-- <div class="meta-header">
-        <strong>Date:</strong> <input type="date" id="systemDate" value="2026-06-23"><br>
-    </div> -->
+    <!-- Print Header -->
+    <div class="print-header">
+        <h2>⛽ BHATTI PETROLEUM, BHOBRA</h2>
+        <h3>Customer Ledger Statement</h3>
+        <p><strong>Account ID:</strong> <span id="printSearchTitle">-</span> | <strong>Date:</strong> <span id="printCurrentDate"></span></p>
+    </div>
 
-    <form id="vehicleRegForm">
-        <div class="step-box">
-            <span>📌 Step 1: New Vehicle Registration (Gari Ka Khata Kholna)</span>
-            <button type="button" class="btn btn-reset"
-                onclick="document.getElementById('vehicleRegForm').reset()">Reset Memory</button>
-        </div>
-
-        <div class="form-panel">
-            <div class="input-group">
-                <label>🚛 Gari Number:</label>
-                <input type="text" id="reg_gari_number" placeholder="E.G. SGA-4592" required>
-            </div>
-            <div class="input-group">
-                <label>👤 Owner / Driver Name:</label>
-                <input type="text" id="reg_owner_name" placeholder="e.g. Mubashar Hassan" required>
-            </div>
-            <div class="input-group">
-                <label>📞 Contact Number:</label>
-                <input type="text" id="reg_contact_number" placeholder="e.g. 0300-1234567" required>
-            </div>
-            <div class="input-group">
-                <label>🏠 Address / Route:</label>
-                <input type="text" id="reg_address" placeholder="e.g. Bhobra, Sargodha" required>
-            </div>
-            <div class="input-group" style="align-self: flex-end;">
-                <button type="submit" class="btn btn-register">💾 Register Gari</button>
+    <!-- Search Section Bar -->
+    <div class="search-container no-print">
+        <div class="search-box-card">
+            <h3 style="margin: 0; color: #1c3b5e;"><i class="fas fa-search"></i> Search Ledger by ID</h3>
+            <p style="color: #666; font-size: 13px; margin: 5px 0 15px 0;">Khata / Vehicle ID darj karke Search button par click karein.</p>
+            <div class="search-input-group">
+                <input type="text" id="search_query" placeholder="Enter Vehicle / Customer ID (e.g. SGA-4592, LEB-1234)..." />
+                <button type="button" id="btnSearch" class="btn-search"><i class="fas fa-search"></i> Search</button>
             </div>
         </div>
-    </form>
-    <form id="logFuelForm">
-        <div class="step-box" style="margin-top: 8px;">
-            <span>⛽ Step 2: Daily Credit Fuel Entry & Search Ledger</span>
+    </div>
+
+    <!-- Ledger Data Display Section -->
+    <div id="ledgerSection" style="display: none; width: 95%; margin: 20px auto;">
+
+        <div class="no-print" style="overflow: hidden;">
+            <button type="button" onclick="window.print()" class="btn-print">
+                <i class="fas fa-print"></i> 🖨️ Print Ledger
+            </button>
         </div>
 
-        <div class="form-panel">
-            <div class="input-group">
-                <label>🔍 Search / Select Gari:</label>
-                <input type="text" id="search_gari" placeholder="Type Gari No..." autocomplete="off">
-            </div>
-            <div class="input-group">
-                <label>📅 Date:</label>
-                <input type="date" id="entry_date" required>
-            </div>
-            <div class="input-group">
-                <label>🚚 Driver Name:</label>
-                <input type="text" id="driver_name" placeholder="Driver Name" required>
-            </div>
-            <div class="input-group">
-                <label>⛽ Select Product:</label>
-                <select id="product_type" required>
-                    <optgroup label="⛽ Fuel Types">
-                        <option value="Diesel (HSD)">Diesel (HSD)</option>
-                        <option value="Petrol (Super)">Petrol (Super)</option>
-                    </optgroup>
+        <table class="sheet-table">
+            <thead>
+                <tr style="background-color: #d0e1f9; color: #1c3b5e;">
+                    <th style="width: 10%;">Date</th>
+                    <th style="width: 22%;">Customer / Account Name</th>
+                    <th style="width: 30%;">Description</th>
+                    <th style="width: 13%;">Debit (Udhaar)</th>
+                    <th style="width: 13%;">Credit (Vasooli)</th>
+                    <th style="width: 12%; text-align: right;">Total / Balance</th>
+                </tr>
+            </thead>
+            <tbody id="ledgerTableBody">
+                <!-- Dynamically populated via JavaScript -->
+            </tbody>
+        </table>
 
-                    <optgroup label="🛢️ Mobil Oil Products">
-                        <option value="T 2 20Ltrs">T 2 20Ltrs</option>
-                        <option value="Balize .75">Balize .75</option>
-                        <option value="Balize 1Ltrs">Balize 1Ltrs</option>
-                        <option value="Cariant 3Ltrs">Cariant 3Ltrs</option>
-                        <option value="Cariant 4ltrs">Cariant 4ltrs</option>
-                        <option value="Deo 6000 4Ltrs">Deo 6000 4Ltrs</option>
-                        <option value="Deo 6000 10Ltrs">Deo 6000 10Ltrs</option>
-                        <option value="Deo 8000 4Ltrs">Deo 8000 4Ltrs</option>
-                        <option value="Deo 8000 10Ltrs">Deo 8000 10Ltrs</option>
-                    </optgroup>
-                </select>
-            </div>
-            <div class="input-group">
-                <label>🛢️ Litres:</label>
-                <input type="number" id="litres" step="0.01" placeholder="100" required>
-            </div>
-            <div class="input-group" style="align-self: flex-end;">
-                <button type="submit" class="btn btn-log-fuel">➕ Log Fuel</button>
-            </div>
+        <!-- Summary Bar -->
+        <div class="summary-bar" style="display: flex; justify-content: space-around; font-weight: bold; background: #f8f9fa; padding: 12px; border: 1px solid #ddd; margin-top: 15px;">
+            <div>Total Debit (Udhaar): <span id="totalDebitAmount" style="color:#c0392b;">0.00 PKR</span></div>
+            <div>Total Credit (Vasooli): <span id="totalCreditVasooli" style="color:#27ae60;">0.00 PKR</span></div>
+            <div>Net Balance: <span id="netBalanceAmount" style="color:#2980b9;">0.00 PKR</span></div>
         </div>
-    </form>
-
-    <table class="sheet-table">
-        <thead>
-            <tr>
-                <th>Date</th>
-                <th>Vehicle Number</th>
-                <th>Owner / Driver Name</th>
-                <th>Contact Info</th>
-                <th>Address</th>
-                <th>Product</th>
-                <th>Litres</th>
-                <th>Rate (PKR)</th>
-                <th>Total Amount</th>
-                <th>Del</th>
-            </tr>
-        </thead>
-        <tbody id="ledgerTableBody">
-            <tr>
-                <td colspan="10" style="color: #7f8c8d;">Data loading...</td>
-            </tr>
-        </tbody>
-    </table>
-
-    <div class="summary-bar">
-        <div>Total Logged Fuel: <span id="totalLoggedFuel" style="color:#1f618d;">0 Ltr</span></div>
-        <div>Total Credit Amount: <span id="totalCreditAmount" style="color:#c0392b;">0 PKR</span></div>
     </div>
 
     <script>
         const API_BASE_URL = '/api/ledger';
 
         document.addEventListener('DOMContentLoaded', () => {
-
-            // Set Default Date to Today
-            const today = new Date().toISOString().split('T')[0];
-            document.getElementById('entry_date').value = today;
-
-            // Standardized to 'userId'
             const userId = localStorage.getItem('userId');
             if (!userId) {
                 alert("User session expired! Pehle login karein.");
@@ -157,181 +204,112 @@
                 return;
             }
 
-            // Load All Ledgers Initially (Passing userId)
-            fetchLedgerHistory('ALL');
+            const searchInput = document.getElementById('search_query');
+            const searchBtn = document.getElementById('btnSearch');
 
-            // 1. Live Search Input Event
-            const searchInput = document.getElementById('search_gari');
-            searchInput.addEventListener('input', (e) => {
-                const query = e.target.value.trim();
-                fetchLedgerHistory(query === '' ? 'ALL' : query);
+            searchBtn.addEventListener('click', performSearch);
+            searchInput.addEventListener('keyup', (e) => {
+                if (e.key === 'Enter') performSearch();
             });
 
-            // 2. Register Vehicle Form Handler
-            document.getElementById('vehicleRegForm').addEventListener('submit', async (e) => {
-                e.preventDefault();
-
-                const gariNo = document.getElementById('reg_gari_number').value.trim();
-                const ownerName = document.getElementById('reg_owner_name').value.trim();
-
-                const payload = {
-                    gari_number: gariNo,
-                    owner_name: ownerName,
-                    contact_number: document.getElementById('reg_contact_number').value,
-                    address: document.getElementById('reg_address').value,
-                    userId: userId
-                };
-
-                try {
-                    const response = await fetch(`${API_BASE_URL}/register`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-
-                    const data = await response.json();
-
-                    if (response.ok) {
-                        alert(data.message || 'Gari Register ho gayi hai!');
-
-                        // Auto Shift Values to Step 2
-                        document.getElementById('search_gari').value = gariNo;
-                        document.getElementById('driver_name').value = ownerName;
-
-                        // Auto Refresh Table for this vehicle
-                        fetchLedgerHistory(gariNo);
-
-                        // Clear Step 1 Form & Focus Litres
-                        document.getElementById('vehicleRegForm').reset();
-                        document.getElementById('litres').focus();
-                    } else {
-                        alert('Error: ' + (data.message || data.db_error));
-                    }
-                } catch (err) {
-                    alert('Server Connection Error: ' + err.message);
-                }
-            });
-
-            // 3. Log Fuel Form Handler
-            document.getElementById('logFuelForm').addEventListener('submit', async (e) => {
-                e.preventDefault();
-
-                const gariNo = document.getElementById('search_gari').value.trim();
-
-                if (!gariNo) {
-                    alert('Pehle Gari Number add ya select karein!');
-                    return;
-                }
-
-                const payload = {
-                    gari_number: gariNo,
-                    driver_name: document.getElementById('driver_name').value,
-                    product: document.getElementById('product_type').value,
-                    litres: parseFloat(document.getElementById('litres').value),
-                    entry_date: document.getElementById('entry_date').value,
-                    userId: userId
-                };
-
-                try {
-                    const response = await fetch(`${API_BASE_URL}/log-fuel`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-
-                    const data = await response.json();
-
-                    if (response.ok && data.status === "Success") {
-                        document.getElementById('litres').value = '';
-                        fetchLedgerHistory('ALL');
-                        document.getElementById('search_gari').value = '';
-                        document.getElementById('driver_name').value = '';
-                    } else {
-                        alert('Error: ' + (data.message || 'Fuel entry save nahi ho saki. Check details!'));
-                    }
-                } catch (err) {
-                    alert('Server Connection Error: ' + err.message);
-                }
-            });
+            const logoutBtn = document.getElementById('logoutBtn');
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', () => {
+                    localStorage.removeItem('userId');
+                    localStorage.removeItem('username');
+                    alert("Aap successfully logout ho chuke hain!");
+                    window.location.href = 'login.html';
+                });
+            }
         });
 
-        // Fetch Function
-        async function fetchLedgerHistory(gariQuery = 'ALL') {
-            try {
-                const userId = localStorage.getItem('userId');
+        async function performSearch() {
+            const vehicleId = document.getElementById('search_query').value.trim();
+            const userId = localStorage.getItem('userId');
 
-                const response = await fetch(`${API_BASE_URL}/report/${encodeURIComponent(gariQuery)}?userId=${userId}`);
+            if (!vehicleId) {
+                alert("Please enter a valid ID!");
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/vehicle-ledger/${encodeURIComponent(vehicleId)}?userId=${userId}`);
                 const data = await response.json();
 
-                if (response.ok) {
+                if (response.ok && data.status === "Success") {
+                    document.getElementById('ledgerSection').style.display = 'block';
+
                     renderLedgerTable(data.history || []);
-                    document.getElementById('totalLoggedFuel').innerText = `${data.total_logged_fuel || 0} Ltr`;
-                    document.getElementById('totalCreditAmount').innerText = `${(data.total_credit_amount || 0).toLocaleString()} PKR`;
+
+                    updateSummaryElement('totalDebitAmount', `${(data.total_debit || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`);
+                    updateSummaryElement('totalCreditVasooli', `${(data.total_credit_vasooli || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`);
+                    updateSummaryElement('netBalanceAmount', `${(data.net_balance || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`);
+
+                    document.getElementById('printSearchTitle').innerText = vehicleId.toUpperCase();
+                    document.getElementById('printCurrentDate').innerText = new Date().toLocaleDateString('en-GB');
                 } else {
-                    document.getElementById('ledgerTableBody').innerHTML = `<tr><td colspan="10" style="color:red;">${data.message || 'Data fetch nahi ho saka'}</td></tr>`;
+                    alert('Error: ' + (data.message || 'Is ID ka koi record nahi mila'));
                 }
             } catch (err) {
                 console.error("Fetch Error:", err);
+                alert("Server Connection Error: " + err.message);
             }
         }
 
-        // Render Table Rows
+        function updateSummaryElement(id, value) {
+            const el = document.getElementById(id);
+            if (el) el.innerText = value;
+        }
+
         function renderLedgerTable(history) {
             const tbody = document.getElementById('ledgerTableBody');
+            if (!tbody) return;
             tbody.innerHTML = '';
 
             if (!history || history.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" style="color:#7f8c8d;">Koi credit entry majood nahi hai.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="color:#7f8c8d; text-align:center; padding: 20px;">Is ID ka koi record majood nahi hai.</td></tr>';
                 return;
             }
 
             history.forEach(row => {
-                const formattedDate = new Date(row.entry_date).toLocaleDateString('en-GB');
-                const tr = document.createElement('tr');
+                const formattedDate = row.entry_date ? new Date(row.entry_date).toLocaleDateString('en-GB') : '-';
 
+                let description = '-';
+                if (row.description && row.description.trim() !== '') {
+                    description = row.description;
+                } else if (row.product && row.product !== 'Daily Sheet') {
+                    description = `${row.product} (${parseFloat(row.litres || 0).toFixed(2)} Ltr/Qty)`;
+                } else if (row.payment_type === 'VASOOLI') {
+                    description = 'Cash Payment Received (Vasooli)';
+                } else {
+                    description = 'Daily Sheet Entry';
+                }
+
+                const debitAmount = parseFloat(row.debit_udhaar || 0);
+                const creditAmount = parseFloat(row.credit_vasooli || 0);
+                
+                // Difference / Total Calculation: Credit (Vasooli) - Debit (Udhaar)
+                const totalDifference = creditAmount - debitAmount;
+                const totalColor = totalDifference < 0 ? '#c0392b' : (totalDifference > 0 ? '#27ae60' : '#333');
+
+                const tr = document.createElement('tr');
                 tr.innerHTML = `
-                <td>${formattedDate}</td>
-                <td><strong>${row.gari_number}</strong></td>
-                <td>${row.driver_name || '-'}</td>
-                <td>${row.contact_info || row.contact_number || '-'}</td>
-                <td>${row.address || '-'}</td>
-                <td>${row.product}</td>
-                <td>${row.litres}</td>
-                <td>${parseFloat(row.rate_pkr || 0).toFixed(2)}</td>
-                <td style="color:#c0392b; font-weight:bold;">${parseFloat(row.total_amount || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })}</td>
-                <td><a href="javascript:void(0)" class="btn-delete" onclick="deleteEntry(${row.id})">[X]</a></td>
-            `;
+                    <td>${formattedDate}</td>
+                    <td><strong>${row.driver_name || row.customer_name || '-'}</strong></td>
+                    <td>${description}</td>
+                    <td style="color:#c0392b; font-weight:bold;">
+                        ${debitAmount.toLocaleString('en-PK', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td style="color:#27ae60; font-weight:bold;">
+                        ${creditAmount.toLocaleString('en-PK', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td style="color:${totalColor}; font-weight:bold; text-align:right;">
+                        ${totalDifference.toLocaleString('en-PK', { minimumFractionDigits: 2 })}
+                    </td>
+                `;
                 tbody.appendChild(tr);
             });
         }
-
-        // Delete Row
-        async function deleteEntry(id) {
-            if (!confirm('Kya aap yeh entry delete karna chahte hain?')) return;
-
-            try {
-                const userId = localStorage.getItem('userId');
-
-                const response = await fetch(`${API_BASE_URL}/delete/${id}?userId=${userId}`, { method: 'DELETE' });
-                const data = await response.json();
-
-                if (response.ok) {
-                    fetchLedgerHistory('ALL');
-                } else {
-                    alert('Error: ' + data.message);
-                }
-            } catch (err) {
-                alert('Server Error: ' + err.message);
-            }
-        }
-
-        // 🛑 LOGOUT BUTTON FIX: Clear matching keys
-        document.getElementById('logoutBtn').addEventListener('click', () => {
-            localStorage.removeItem('userId'); // Matches login storage key
-            localStorage.removeItem('username');
-            alert("Aap successfully logout ho chuke hain!");
-            window.location.href = 'login.html';
-        });
     </script>
 </body>
 

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trial Balance Report</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .card-custom { border-radius: 12px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .table-responsive { border-radius: 10px; overflow: hidden; }
+        .table th { background-color: #1e293b; color: white; border: none; }
+        .table-hover tbody tr:hover { background-color: #f1f5f9; }
+        .cash-row { background-color: #fefce8 !important; }
+    </style>
+</head>
+<body>
+
+<div class="container my-5">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold text-dark mb-0">Trial Balance Statement</h2>
+            <p class="text-muted small">Summary of all ledger accounts and net balances</p>
+        </div>
+        <div>
+            <button class="btn btn-outline-secondary me-2" onclick="fetchTrialBalance()">Refresh</button>
+            <button class="btn btn-primary" onclick="window.print()">Print Report</button>
+        </div>
+    </div>
+
+    <!-- Summary Metric Cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card card-custom bg-white p-3 border-start border-danger border-4">
+                <span class="text-muted small fw-bold text-uppercase">Total Debit</span>
+                <h3 class="fw-bold text-danger mb-0" id="tbTotalDebit">0 PKR</h3>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card card-custom bg-white p-3 border-start border-success border-4">
+                <span class="text-muted small fw-bold text-uppercase">Total Credit</span>
+                <h3 class="fw-bold text-success mb-0" id="tbTotalCredit">0 PKR</h3>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card card-custom bg-white p-3 border-start border-primary border-4">
+                <span class="text-muted small fw-bold text-uppercase">Difference / Status</span>
+                <h3 class="fw-bold text-primary mb-0" id="tbNetBalance">Checking...</h3>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trial Balance Table -->
+    <div class="card card-custom bg-white p-4">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="width: 80px;">#</th>
+                        <th>Account / Party Name</th>
+                        <th style="text-align: right; width: 220px;">Debit (PKR)</th>
+                        <th style="text-align: right; width: 220px;">Credit (PKR)</th>
+                    </tr>
+                </thead>
+                <tbody id="trialTableBody">
+                    <tr>
+                        <td colspan="4" class="text-center py-4 text-muted">Loading Trial Balance data...</td>
+                    </tr>
+                </tbody>
+                <tfoot class="table-light fw-bold">
+                    <tr>
+                        <td colspan="2" class="text-end text-uppercase">Total:</td>
+                        <td style="text-align: right; color: #e11d48;" id="footDebit">0 PKR</td>
+                        <td style="text-align: right; color: #16a34a;" id="footCredit">0 PKR</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function fetchTrialBalance() {
+        try {
+            // URL params se optional userId pass karne ke liye
+            const urlParams = new URLSearchParams(window.location.search);
+            const userId = urlParams.get('userId') || '';
+
+            const response = await fetch(`/api/reports/trial-balance?userId=${userId}`);
+            const result = await response.json();
+
+            if (result.success) {
+                renderTable(result.data);
+            } else {
+                alert(result.message || 'Data load karne mein masla aaya.');
+            }
+        } catch (error) {
+            console.error('API Fetch Error:', error);
+            alert('Server se connect nahi ho saka.');
+        }
+    }
+
+    function renderTable(data) {
+        const tbody = document.getElementById('trialTableBody');
+        tbody.innerHTML = '';
+
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;" class="py-4 text-muted">No active accounts found.</td></tr>';
+            return;
+        }
+
+        let rawDebitSum = 0;
+        let rawCreditSum = 0;
+
+        // 1. Primary Ledger Accounts Loop
+        data.forEach((row, index) => {
+            const debitRaw = Number(row.total_debit || 0);
+            const creditRaw = Number(row.total_credit || 0);
+
+            // Single Net Balance logic
+            const netAmount = debitRaw - creditRaw;
+
+            let finalDebit = 0;
+            let finalCredit = 0;
+
+            if (netAmount > 0) {
+                finalDebit = netAmount;
+            } else if (netAmount < 0) {
+                finalCredit = Math.abs(netAmount);
+            }
+
+            rawDebitSum += finalDebit;
+            rawCreditSum += finalCredit;
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${index + 1}</td>
+                <td><strong>${row.party_name || '-'}</strong></td>
+                <td style="text-align:right; color:${finalDebit > 0 ? '#e11d48' : '#64748b'}; font-weight:${finalDebit > 0 ? '600' : 'normal'};">
+                    ${finalDebit > 0 ? finalDebit.toLocaleString('en-PK') : '-'}
+                </td>
+                <td style="text-align:right; color:${finalCredit > 0 ? '#16a34a' : '#64748b'}; font-weight:${finalCredit > 0 ? '600' : 'normal'};">
+                    ${finalCredit > 0 ? finalCredit.toLocaleString('en-PK') : '-'}
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        // 2. CASH IN HAND (Debit Side Cash Entry)
+        // Correct Accounting Rule: Cash in hand balances Debit side to equal Credit side
+        const cashInHand = rawCreditSum - rawDebitSum;
+        const finalDebitTotal = rawDebitSum + (cashInHand > 0 ? cashInHand : 0);
+        const finalCreditTotal = rawCreditSum;
+
+        const cashTr = document.createElement('tr');
+        cashTr.className = 'cash-row';
+
+        cashTr.innerHTML = `
+            <td>${data.length + 1}</td>
+            <td><strong>CASH IN HAND</strong></td>
+            <td style="text-align:right; color:#e11d48; font-weight:bold;">
+                ${cashInHand >= 0 ? cashInHand.toLocaleString('en-PK') : '0'}
+            </td>
+            <td style="text-align:right; color:#16a34a; font-weight:bold;">
+                ${cashInHand < 0 ? Math.abs(cashInHand).toLocaleString('en-PK') : '-'}
+            </td>
+        `;
+        tbody.appendChild(cashTr);
+
+        // 3. Update Metrics and Footer Totals
+        const difference = Math.abs(finalDebitTotal - finalCreditTotal);
+
+        document.getElementById('tbTotalDebit').innerText = finalDebitTotal.toLocaleString('en-PK') + ' PKR';
+        document.getElementById('tbTotalCredit').innerText = finalCreditTotal.toLocaleString('en-PK') + ' PKR';
+        
+        const netBalElem = document.getElementById('tbNetBalance');
+        if (difference === 0) {
+            netBalElem.innerText = 'TALLIED (0 PKR)';
+            netBalElem.className = 'fw-bold text-success mb-0';
+        } else {
+            netBalElem.innerText = difference.toLocaleString('en-PK') + ' PKR';
+            netBalElem.className = 'fw-bold text-danger mb-0';
+        }
+
+        document.getElementById('footDebit').innerText = finalDebitTotal.toLocaleString('en-PK') + ' PKR';
+        document.getElementById('footCredit').innerText = finalCreditTotal.toLocaleString('en-PK') + ' PKR';
+    }
+
+    // Page load hone par run karein
+    window.onload = fetchTrialBalance;
+</script>
+
+</body>
+</html>

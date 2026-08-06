@@ -1,6 +1,46 @@
 const db = require('../config/db');
 
-// 1. New customer registration (Filtered by user_id)
+// Safe Date Formatting Helper
+const formatDate = (dateInput) => {
+    if (!dateInput) return '';
+    if (typeof dateInput === 'string') {
+        const match = dateInput.match(/\d{4}-\d{2}-\d{2}/);
+        if (match) return match[0];
+    }
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return '';
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const EXPENSE_SEARCH_IDS = ['mi', 'i', 'bb', 'pm', 'rg', 's', 'l'];
+
+// 1. Get All Master Customers for Logged-In User
+exports.getMasterCustomers = async (req, res) => {
+    try {
+        const { userId } = req.query;
+        if (!userId) {
+            return res.status(400).json({ status: "Error", message: "User ID parameter missing!" });
+        }
+
+        const query = `
+            SELECT LOWER(TRIM(search_id)) AS search_id, customer_name 
+            FROM daily_customers 
+            WHERE user_id = ?
+            ORDER BY id ASC
+        `;
+        const [rows] = await db.query(query, [userId]);
+
+        res.json({ status: "Success", data: rows });
+    } catch (error) {
+        console.error("Fetch Master Customers Error:", error);
+        res.status(500).json({ status: "Error", db_error: error.message });
+    }
+};
+
+// 2. Add or Update Customer (User Isolated)
 exports.addCustomer = async (req, res) => {
     try {
         const { customer_name, search_id, userId } = req.body;
@@ -10,22 +50,18 @@ exports.addCustomer = async (req, res) => {
         }
 
         const cleanSearchId = search_id.trim().toLowerCase();
-        
-        // Check if customer with same search ID exists FOR THIS USER
-        const [existing] = await db.query(
-            'SELECT id FROM daily_customers WHERE LOWER(search_id) = ? AND user_id = ?', 
-            [cleanSearchId, userId]
-        );
-        if (existing.length > 0) {
-            return res.status(400).json({ status: "Error", message: "Yeh Search ID aap ke paas pehle se registered hai!" });
-        }
+        const cleanName = customer_name.trim();
 
-        const query = `INSERT INTO daily_customers (customer_name, search_id, user_id) VALUES (?, ?, ?)`;
-        await db.query(query, [customer_name.trim(), cleanSearchId, userId]);
+        const query = `
+            INSERT INTO daily_customers (customer_name, search_id, user_id) 
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE customer_name = VALUES(customer_name)
+        `;
+        await db.query(query, [cleanName, cleanSearchId, userId]);
 
         res.json({
             status: "Success",
-            message: `Customer ${customer_name} added successfully!`
+            message: `Customer ${cleanName} saved successfully!`
         });
     } catch (error) {
         console.error("Add Customer Error:", error);
@@ -33,114 +69,167 @@ exports.addCustomer = async (req, res) => {
     }
 };
 
-// 2. Bulk Batch Save Daily Sheet Entries (Filtered by user_id)
+// 3. Bulk Batch Save Daily Sheet Entries (FIXED FOR PREVIOUS & CURRENT DATES)
 exports.saveDailySheetEntry = async (req, res) => {
+    const connection = await db.getConnection(); // Use Database Transaction
     try {
-        const entries = req.body.entries ? req.body.entries : [req.body];
-        const mainUserId = req.body.userId; 
+        await connection.beginTransaction();
 
-        if (!entries || entries.length === 0 || !mainUserId) {
-            return res.status(400).json({ status: "Error", message: "Entries ya User ID nahi mili." });
+        const rawEntries = req.body.entries ? req.body.entries : [req.body];
+        const mainUserId = req.body.userId; 
+        const sheetDateParam = req.body.sheet_date;
+
+        if (!rawEntries || rawEntries.length === 0 || !mainUserId || !sheetDateParam) {
+            await connection.rollback();
+            connection.release();
+            return res.status(400).json({ status: "Error", message: "Entries, User ID ya Sheet Date missing hai." });
         }
 
-        for (const item of entries) {
-            const { search_id, debit_udhaar, credit_vasooli, sheet_date, customer_name, userId } = item;
+        const formattedSheetDate = formatDate(sheetDateParam);
+
+        // Step 1: Us selected date ki pehle se mojood entries delete karo
+        const deleteQuery = `
+            DELETE FROM daily_sheets 
+            WHERE user_id = ? AND DATE_FORMAT(sheet_date, '%Y-%m-%d') = ?
+        `;
+        await connection.query(deleteQuery, [mainUserId, formattedSheetDate]);
+
+        // Step 2: Customer Master Upsert & Valid Entries Collect Karo
+        const valuesToInsert = [];
+
+        for (const item of rawEntries) {
+            const { search_id, debit_udhaar, credit_vasooli, debit, credit, description, customer_name, userId } = item;
             const currentUserId = userId || mainUserId;
 
-            if (!search_id || !sheet_date || !currentUserId) continue;
+            if (!search_id) continue;
 
-            const cleanSearchId = search_id.trim().toLowerCase();
-            const debit = parseFloat(debit_udhaar) || 0;
-            const credit = parseFloat(credit_vasooli) || 0;
-            const total_balance = debit - credit;
+            const cleanSearchId = String(search_id).trim().toLowerCase();
+            const cleanDesc = description ? String(description).trim() : '';
+            const debitVal = parseFloat(debit_udhaar !== undefined ? debit_udhaar : debit) || 0;
+            const creditVal = parseFloat(credit_vasooli !== undefined ? credit_vasooli : credit) || 0;
+            const total_balance = creditVal - debitVal;
 
-            // Ensure customer entry exists in master customer list for this specific user
-            if (customer_name) {
-                await db.query(
-                    `INSERT INTO daily_customers (customer_name, search_id, user_id) 
-                     VALUES (?, ?, ?) 
-                     ON DUPLICATE KEY UPDATE customer_name = VALUES(customer_name)`,
-                    [customer_name.trim(), cleanSearchId, currentUserId]
-                );
+            // Master Customer Auto-add / Update
+            if (customer_name && String(customer_name).trim() !== '') {
+                const customerUpsert = `
+                    INSERT INTO daily_customers (customer_name, search_id, user_id) 
+                    VALUES (?, ?, ?)
+                    ON DUPLICATE KEY UPDATE customer_name = VALUES(customer_name)
+                `;
+                await connection.query(customerUpsert, [String(customer_name).trim(), cleanSearchId, currentUserId]);
             }
 
-            // Check if sheet row already exists for this search_id, sheet_date AND user_id
-            const [exists] = await db.query(
-                'SELECT id FROM daily_sheets WHERE LOWER(search_id) = ? AND DATE(sheet_date) = DATE(?) AND user_id = ?',
-                [cleanSearchId, sheet_date, currentUserId]
-            );
-
-            if (exists.length > 0) {
-                // Update
-                await db.query(
-                    `UPDATE daily_sheets 
-                     SET debit_udhaar = ?, credit_vasooli = ?, total_balance = ? 
-                     WHERE id = ?`,
-                    [debit, credit, total_balance, exists[0].id]
-                );
-            } else {
-                // Insert
-                await db.query(
-                    `INSERT INTO daily_sheets (search_id, debit_udhaar, credit_vasooli, total_balance, sheet_date, user_id) 
-                     VALUES (?, ?, ?, ?, ?, ?)`,
-                    [cleanSearchId, debit, credit, total_balance, sheet_date, currentUserId]
-                );
+            // Sirf wahi entry collect karo jo empty na ho
+            if (cleanSearchId !== '' && (debitVal > 0 || creditVal > 0 || cleanDesc !== '')) {
+                valuesToInsert.push([
+                    cleanSearchId,
+                    debitVal,
+                    creditVal,
+                    cleanDesc,
+                    total_balance,
+                    formattedSheetDate,
+                    currentUserId
+                ]);
             }
         }
+
+        // Step 3: Nayi entries selected date par Bulk Insert karo
+        if (valuesToInsert.length > 0) {
+            const insertQuery = `
+                INSERT INTO daily_sheets 
+                (search_id, debit_udhaar, credit_vasooli, description, total_balance, sheet_date, user_id)
+                VALUES ?
+            `;
+            await connection.query(insertQuery, [valuesToInsert]);
+        }
+
+        await connection.commit();
+        connection.release();
 
         res.json({
             status: "Success",
-            message: "Daily Sheet entries successfully saved/updated!"
+            message: `${formattedSheetDate} ka data kamyabi se save ho gaya!`
         });
     } catch (error) {
+        await connection.rollback();
+        connection.release();
         console.error("Save Sheet Entry Error:", error);
         res.status(500).json({ status: "Error", db_error: error.message });
     }
 };
 
-// 3. Fetch Daily Sheet By Date (Filtered by user_id)
+// 4. Fetch Daily Sheet By Date (WITH PREVIOUS CUMULATIVE DEBIT & CREDIT CARRY FORWARD)
 exports.getDailySheetByDate = async (req, res) => {
     try {
         const { date } = req.params; 
-        const userId = req.query.userId; // 🔥 Catch User ID filter
+        const { userId } = req.query; 
 
         if (!userId) {
             return res.status(400).json({ status: "Error", message: "User ID parameter missing!" });
         }
 
+        const formattedDate = formatDate(date);
+
+        // Step 1: Current selected date ki entries fetch karo
         const query = `
             SELECT 
                 dc.customer_name, 
-                dc.search_id, 
+                LOWER(TRIM(dc.search_id)) AS search_id, 
                 COALESCE(ds.id, 0) AS id,
+                COALESCE(ds.description, '') AS description,
                 COALESCE(ds.debit_udhaar, 0) AS debit_udhaar, 
                 COALESCE(ds.credit_vasooli, 0) AS credit_vasooli, 
                 COALESCE(ds.total_balance, 0) AS total_balance
             FROM daily_customers dc
             LEFT JOIN daily_sheets ds 
                 ON LOWER(TRIM(dc.search_id)) = LOWER(TRIM(ds.search_id)) 
-                AND DATE(ds.sheet_date) = DATE(?)
-                AND ds.user_id = dc.user_id
+                AND DATE_FORMAT(ds.sheet_date, '%Y-%m-%d') = ?
+                AND ds.user_id = ?
             WHERE dc.user_id = ?
             ORDER BY dc.id ASC
         `;
         
-        const [rows] = await db.query(query, [date, userId]);
+        const [rows] = await db.query(query, [formattedDate, userId, userId]);
 
-        let total_debit = 0;
-        let total_credit = 0;
+        // Step 2: Strictly Selected Date se PEHLE tak ka Cumulative Debit & Credit
+        const openingCumulativeQuery = `
+            SELECT 
+                COALESCE(SUM(debit_udhaar), 0) AS opening_debit,
+                COALESCE(SUM(credit_vasooli), 0) AS opening_credit
+            FROM daily_sheets 
+            WHERE user_id = ? 
+              AND DATE_FORMAT(sheet_date, '%Y-%m-%d') < ?
+        `;
+        
+        const [openingCumResult] = await db.query(openingCumulativeQuery, [userId, formattedDate]);
+        
+        const opening_debit = parseFloat(openingCumResult[0]?.opening_debit) || 0;
+        const opening_credit = parseFloat(openingCumResult[0]?.opening_credit) || 0;
 
+        // Step 3: Pichlay dinon ka Opening Net Cash Balance
+        const opening_balance = opening_credit - opening_debit;
+
+        // Step 4: Aaj ke din ki total entries sum karo
+        let today_debit = 0;
+        let today_credit = 0;
         rows.forEach(entry => {
-            total_debit += parseFloat(entry.debit_udhaar) || 0;
-            total_credit += parseFloat(entry.credit_vasooli) || 0;
+            today_debit += parseFloat(entry.debit_udhaar) || 0;
+            today_credit += parseFloat(entry.credit_vasooli) || 0;
         });
+
+        const overall_debit = opening_debit + today_debit;
+        const overall_credit = opening_credit + today_credit;
+        const closing_balance = opening_balance + (today_credit - today_debit);
 
         res.json({
             status: "Success",
-            sheet_date: date,
-            total_debit,
-            total_credit,
-            net_cash_income: total_credit,
+            sheet_date: formattedDate,
+            opening_debit: opening_debit,        // Pichle dino ka total debit carry forward
+            opening_credit: opening_credit,      // Pichle dino ka total credit carry forward
+            total_debit: overall_debit,          // Aaj tak ka overall grand total debit
+            total_credit: overall_credit,        // Aaj tak ka overall grand total credit
+            opening_balance: opening_balance,    // Opening cash balance
+            closing_balance: closing_balance,    // Closing cash balance
             entries: rows
         });
     } catch (error) {
@@ -149,52 +238,96 @@ exports.getDailySheetByDate = async (req, res) => {
     }
 };
 
-// 4. Daily Sheet se Entry Delete karna
+// 5. Delete Entry (With user verification)
 exports.deleteSheetEntry = async (req, res) => {
     try {
         const { id } = req.params;
+        const { userId } = req.query;
 
         if (id == 0) {
             return res.json({ status: "Success", message: "Empty row ignored." });
         }
 
-        await db.query('DELETE FROM daily_sheets WHERE id = ?', [id]);
+        await db.query('DELETE FROM daily_sheets WHERE id = ? AND user_id = ?', [id, userId]);
 
-        res.json({
-            status: "Success",
-            message: `Entry deleted successfully.`
-        });
+        res.json({ status: "Success", message: `Entry deleted successfully.` });
     } catch (error) {
         console.error("Delete Entry Error:", error);
         res.status(500).json({ status: "Error", db_error: error.message });
     }
 };
 
-// 5. Customer ko Permanent Delete karna (Filtered by user_id)
+// 6. Delete Customer Permanently (User Isolated)
 exports.deleteCustomerPermanently = async (req, res) => {
     try {
         const { search_id } = req.params;
-        const userId = req.query.userId; // 🔥 Secure validation
+        const { userId } = req.query; 
 
         if (!userId) {
-            return res.status(400).json({ status: "Error", message: "User ID authorization fail!" });
+            return res.status(400).json({ status: "Error", message: "User ID missing!" });
         }
 
         const cleanSearchId = search_id.trim().toLowerCase();
 
         await db.query('DELETE FROM daily_sheets WHERE LOWER(search_id) = ? AND user_id = ?', [cleanSearchId, userId]);
-        const [result] = await db.query('DELETE FROM daily_customers WHERE LOWER(search_id) = ? AND user_id = ?', [cleanSearchId, userId]);
+        await db.query('DELETE FROM daily_customers WHERE LOWER(search_id) = ? AND user_id = ?', [cleanSearchId, userId]);
 
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ status: "Error", message: "Yeh Customer majood nahi hai ya aap authorized nahi hain!" });
+        res.json({ status: "Success", message: `Customer permanently deleted.` });
+    } catch (error) {
+        console.error("Delete Customer Error:", error);
+        res.status(500).json({ status: "Error", db_error: error.message });
+    }
+};
+
+// 7. Static Expenses Report
+exports.getExpensesReport = async (req, res) => {
+    try {
+        const { userId } = req.query;
+
+        if (!userId) {
+            return res.status(400).json({ status: "Error", message: "User ID missing hai!" });
         }
+
+        const query = `
+            SELECT 
+                LOWER(TRIM(dc.search_id)) AS search_id,
+                dc.customer_name AS account_name,
+                COALESCE(SUM(ds.debit_udhaar), 0) AS total_debit,
+                COUNT(ds.id) AS transaction_count
+            FROM daily_customers dc
+            LEFT JOIN daily_sheets ds 
+                ON LOWER(TRIM(dc.search_id)) = LOWER(TRIM(ds.search_id))
+                AND ds.user_id = dc.user_id
+            WHERE dc.user_id = ? 
+              AND LOWER(TRIM(dc.search_id)) IN (?)
+            GROUP BY LOWER(TRIM(dc.search_id)), dc.customer_name
+            ORDER BY dc.id ASC
+        `;
+
+        const [rows] = await db.query(query, [userId, EXPENSE_SEARCH_IDS]);
+
+        let overallExpense = 0;
+        const reportData = rows.map((row, index) => {
+            const total = parseFloat(row.total_debit) || 0;
+            overallExpense += total;
+
+            return {
+                sr_no: index + 1,
+                search_id: row.search_id,
+                account_name: row.account_name,
+                total_transactions: row.transaction_count,
+                total_amount: total
+            };
+        });
 
         res.json({
             status: "Success",
-            message: `Customer permanent delete ho gaya.`
+            overall_expense: overallExpense,
+            data: reportData
         });
+
     } catch (error) {
-        console.error("Delete Customer Error:", error);
+        console.error("Fetch Static Expenses Error:", error);
         res.status(500).json({ status: "Error", db_error: error.message });
     }
 };

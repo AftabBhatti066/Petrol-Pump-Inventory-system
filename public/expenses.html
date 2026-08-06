@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bhatti Petroleum, BHOBRA - [Static Expenses Report]</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/png" href="/logo.png">
+</head>
+
+<body>
+
+    <div class="window-title">
+        <span>⛽ Bhatti Petroleum, BHOBRA - Fixed Expense Accounts Report</span>
+        <button id="logoutBtn" class="btn btn-danger">
+            <i class="fas fa-sign-out-alt"></i> Logout
+        </button>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="tabs-container">
+        <a href="dashboard.html" class="tab-item">📊 Dashboard</a>
+        <a href="meter-reading.html" class="tab-item">⛽ Meter Reading</a>
+        <a href="daily-sheet.html" class="tab-item">📝 Daily Sheet</a>
+
+        <a href="expenses.html" class="tab-item active">🏷️ Expense</a>
+        <a href="ledgers.html" class="tab-item">📒 Ledgers</a>
+        <a href="pricing.html" class="tab-item">🏷️ Pricing</a>
+        <a href="reports.html" class="tab-item">📁 Reports</a>
+    </div>
+
+    <div class="section-header-box" style="margin-top: 15px;">
+        <span>Fixed Expense Accounts Summary</span>
+        <span style="font-weight: normal; font-size: 12px;">Realtime Total Debit Summary</span>
+    </div>
+
+    <!-- Static Expense Table -->
+    <table class="sheet-table">
+        <thead>
+            <tr>
+                <th style="width: 10%;">Sr #</th>
+                <th style="width: 20%;">Search ID</th>
+                <th style="width: 40%;">Expense Account Name</th>
+                <th style="width: 15%;">Total Entries</th>
+                <th style="width: 15%;">Total Amount (PKR)</th>
+            </tr>
+        </thead>
+        <tbody id="expenseTableBody">
+            <!-- Dynamic Fixed Rows -->
+        </tbody>
+    </table>
+
+    <!-- Total Summary Bar -->
+    <div class="summary-bar">
+        <div>
+            <span>Status: <span style="color: #27ae60; font-weight: bold;">Active Static Accounts</span></span>
+        </div>
+        <div class="net-income" style="background-color: #c0392b;">
+            Grand Total Expense: <span id="lbl_grand_expense">0</span> PKR
+        </div>
+    </div>
+
+    <script>
+    const API_URL = '/api/daily-sheet';
+
+    async function loadStaticExpensesReport() {
+        const userId = localStorage.getItem('userId');
+        if (!userId) { 
+            window.location.href = 'login.html'; 
+            return; 
+        }
+
+        try {
+            const res = await fetch(`${API_URL}/expenses-report?userId=${userId}`);
+            const result = await res.json();
+
+            if (result.status === "Success" && Array.isArray(result.data)) {
+                renderExpenseTable(result.data, result.overall_expense);
+            } else {
+                renderExpenseTable([], 0);
+            }
+        } catch (err) {
+            console.error("Expenses load error:", err);
+            renderExpenseTable([], 0);
+        }
+    }
+
+    function renderExpenseTable(records, grandTotal) {
+        const tbody = document.getElementById('expenseTableBody');
+        tbody.innerHTML = "";
+
+        if (!records || records.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" class="text-center" style="padding: 15px;">No expense data found.</td></tr>`;
+            document.getElementById('lbl_grand_expense').textContent = "0";
+            return;
+        }
+
+        records.forEach((row) => {
+            const tr = document.createElement('tr');
+
+            tr.innerHTML = `
+                <td class="text-center text-bold">${row.sr_no}</td>
+                <td class="text-center"><strong>${row.search_id}</strong></td>
+                <td style="font-weight: bold; color: #2c3e50;">${row.account_name}</td>
+                <td class="text-center">${row.total_transactions}</td>
+                <td class="text-bold" style="color: #c0392b; text-align: right; padding-right: 15px;">
+                    ${(parseFloat(row.total_amount) || 0).toLocaleString()} PKR
+                </td>
+            `;
+
+            tbody.appendChild(tr);
+        });
+
+        document.getElementById('lbl_grand_expense').textContent = (grandTotal || 0).toLocaleString();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadStaticExpensesReport();
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+        localStorage.removeItem('userId');
+        localStorage.removeItem('username');
+        alert("Aap successfully logout ho chuke hain!");
+        window.location.href = 'login.html';
+    });
+    </script>
+</body>
+
+</html>

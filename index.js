@@ -53,6 +53,11 @@ app.use('/api/report', reportRoutes);
 // ==========================================
 // HTML PAGE ROUTES (Views)
 // ==========================================
+
+const expenseRoutes = require('./routes/expenseRoutes');
+
+// Expense API Prefix Register
+app.use('/api/expense', expenseRoutes);
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });

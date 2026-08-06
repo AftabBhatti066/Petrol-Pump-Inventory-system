@@ -1,22 +1,32 @@
-
-
 const express = require('express');
 const router = express.Router();
-const ledgerController = require('../controllers/ledgerController');
-// Gari registration route
-router.post('/register', ledgerController.registerVehicle);
 
-// Daily fuel entry route
-router.post('/log-fuel', ledgerController.logCreditFuel);
+// Controller handlers import (getTrialBalance ko add kar diya hai)
+const {
+    registerVehicle,
+    logCreditFuel,
+    logVehicleVasooli,
+    getVehicleLedger,
+    deleteCreditEntry,
+    getAccountTypes,
+    createAccount,
+    getTrialBalance // <-- Yahan add kiya hai
+} = require('../controllers/ledgerController');
 
-// Kisi specific gari ki ledger report dekhne ka route
-router.get('/report/:gari_number', ledgerController.getVehicleLedger);
+// Routes Setup
+router.post('/register-vehicle', registerVehicle);
+router.post('/log-credit-fuel', logCreditFuel);
+router.post('/log-vasooli', logVehicleVasooli);
 
-// Credit entry delete karne ka route (id k sath)
-router.delete('/delete/:id', ledgerController.deleteCreditEntry);
+// Fixed Route
+router.get('/vehicle-ledger', getVehicleLedger);
+router.get('/vehicle-ledger/:gari_number', getVehicleLedger);
 
+router.delete('/credit-entry/:id', deleteCreditEntry);
+router.get('/account-types', getAccountTypes);
+router.post('/create-account', createAccount);
 
+// Direct function reference use karein
+router.get('/trial-balance', getTrialBalance); 
 
 module.exports = router;
-
-

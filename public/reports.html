@@ -4,215 +4,634 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bhatti Petroleum - Monthly Daily Report</title>
-    <link rel="icon" href="data:,">
+    <title>Bhatti Petroleum - Reports & Analytics</title>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" type="image/png" href="/logo.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .report-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
 
+        .report-tab-btn {
+            padding: 10px 20px;
+            background: #e2e8f0;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            border-radius: 5px;
+            transition: all 0.2s ease-in-out;
+        }
+
+        .report-tab-btn.active {
+            background: #1c3b5e;
+            color: white;
+        }
+
+        .filter-card {
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: flex;
+            gap: 15px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            flex: 1;
+            min-width: 180px;
+        }
+
+        .filter-group label {
+            font-size: 12px;
+            font-weight: bold;
+            color: #334155;
+        }
+
+        .filter-group input {
+            padding: 9px;
+            border: 1px solid #94a3b8;
+            border-radius: 4px;
+            outline: none;
+        }
+
+        .metric-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+
+        .card {
+            padding: 14px;
+            border-radius: 6px;
+            color: white;
+            font-weight: bold;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .card span {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.9;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .card h3 {
+            margin: 0;
+            font-size: 20px;
+        }
+
+        .card-debit { background: #e11d48; }
+        .card-credit { background: #16a34a; }
+        .card-balance { background: #2563eb; }
+        .card-cost { background: #475569; }
+        .card-expense { background: #dc2626; }
+        .card-profit { background: #059669; }
+
+        .sheet-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        .sheet-table th, .sheet-table td {
+            border: 1px solid #cbd5e1;
+            padding: 8px 12px;
+            text-align: left;
+        }
+
+        .sheet-table th {
+            background: #1c3b5e;
+            color: white;
+        }
+
+        .sheet-table tfoot td {
+            font-weight: bold;
+            background: #f1f5f9;
+            font-size: 15px;
+        }
+
+        .print-header {
+            display: none;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .print-header h1 {
+            margin: 0;
+            font-size: 26px;
+            text-transform: uppercase;
+        }
+
+        .print-header h3 {
+            margin: 5px 0;
+            font-size: 16px;
+            font-weight: normal;
+        }
+
+        @media print {
+            .tabs-container,
+            .window-title,
+            .report-tabs,
+            .filter-card,
+            .metric-cards,
+            .btn-print {
+                display: none !important;
+            }
+
+            .print-header {
+                display: block !important;
+            }
+
+            body {
+                font-size: 12px;
+                color: #000;
+            }
+
+            .sheet-table th {
+                background-color: #f2f2f2 !important;
+                color: #000 !important;
+            }
+
+            .sheet-table td, .sheet-table th {
+                border: 1px solid #000 !important;
+            }
+        }
+    </style>
 </head>
 
 <body>
+
     <div class="window-title">
-        <span>⛽ Bhatti Petroleum, BHOBRA - Report</span>
-        <button id="logoutBtn" class="btn btn-danger">
-            <i class="fas fa-sign-out-alt"></i> Logout
-        </button>
+        <span>⛽ Bhatti Petroleum, BHOBRA - Reports & Analytics</span>
+        <button id="logoutBtn" class="btn btn-danger" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
     </div>
 
     <div class="tabs-container">
-        <a href="dashboard.html" class="tab-btn">📊 Dashboard</a>
-        <a href="meter-reading.html" class="tab-btn">⛽ Meter Reading</a>
-        <a href="daily-sheet.html" class="tab-btn active">📝 Daily Sheet</a>
-        <a href="ledgers.html" class="tab-btn">📒 Ledgers</a>
-        <a href="pricing.html" class="tab-btn">📊 Pricing</a>
-        <a href="reports.html" class="tab-btn">📁 Reports</a>
+        <a href="dashboard.html" class="tab-item">📊 Dashboard</a>
+        <a href="meter-reading.html" class="tab-item">⛽ Meter Reading</a>
+        <a href="daily-sheet.html" class="tab-item">📝 Daily Sheet</a>
+
+        <a href="expenses.html" class="tab-item">🏷️ Expense</a>
+        <a href="ledgers.html" class="tab-item">📒 Ledgers</a>
+        <a href="pricing.html" class="tab-item">🏷️ Pricing</a>
+        <a href="reports.html" class="tab-item active">📁 Reports</a>
     </div>
 
+    <!-- Inner Navigation Tabs -->
+    <div class="report-tabs">
+        <button class="report-tab-btn active" onclick="switchReportTab('trial')">⚖️ Trial Balance Summary</button>
+        <button class="report-tab-btn" onclick="switchReportTab('profit')">📈 Dispenser Fuel Profit Report</button>
+    </div>
 
-    <div class="dashboard-card">
-        <div class="card-header">
-            <span>📊 Petrol Pump Daily Credit & Debit Summary Report</span>
-            <button class="btn-filter" style="background-color: #27ae60;" onclick="fetchMonthlyData()">🔄 Refresh
-                Report</button>
+    <!-- 1. TRIAL BALANCE SUMMARY SECTION WITH DATE FILTERS -->
+    <div id="trialReportSection">
+        <div class="print-header">
+            <h1>BHATTI PETROLIUM</h1>
+            <h3>Lahore Road Rah Bhobrra</h3>
+            <h4 id="printDate">Date: --/--/----</h4>
         </div>
 
-        <div class="filter-section">
-            <div class="form-group">
+        <div class="filter-card">
+            <div class="filter-group">
                 <label>📅 From Date:</label>
-                <input type="date" id="fromDate">
+                <input type="date" id="tb_start_date">
             </div>
-            <div class="form-group">
+            <div class="filter-group">
                 <label>📅 To Date:</label>
-                <input type="date" id="toDate">
+                <input type="date" id="tb_end_date">
             </div>
-            <button class="btn-filter" onclick="fetchMonthlyData()">🔍 Filter Report</button>
+            <button class="btn btn-register" onclick="loadTrialBalance()"><i class="fas fa-sync"></i> Filter / Refresh Data</button>
+            <button class="btn btn-reset btn-print" onclick="window.print()"><i class="fas fa-print"></i> Print Trial Balance</button>
         </div>
 
-        <div class="summary-grid">
-            <div class="card-stat credit">
-                <h4>Total Monthly Credit (Udhaar)</h4>
-                <div class="amount text-danger" id="widgetTotalCredit">0.00 PKR</div>
+        <div class="metric-cards">
+            <div class="card card-debit">
+                <span>Total Debit</span>
+                <h3 id="tbTotalDebit">0 PKR</h3>
             </div>
-            <div class="card-stat debit">
-                <h4>Total Monthly Received (Vasool)</h4>
-                <div class="amount text-success" id="widgetTotalDebit">0.00 PKR</div>
+            <div class="card card-credit">
+                <span>Total Credit</span>
+                <h3 id="tbTotalCredit">0 PKR</h3>
             </div>
-            <div class="card-stat balance">
-                <h4>Net Total Outstanding</h4>
-                <div class="amount text-primary" id="widgetNetBalance">0.00 PKR</div>
+            <div class="card card-balance">
+                <span>Difference (Tally Status)</span>
+                <h3 id="tbNetBalance">0 PKR</h3>
             </div>
         </div>
 
-        <div class="table-container">
-            <h3 style="margin-bottom: 12px; color: #2c3e50;">📋 Rozana Ka Khata (Daily Breakup)</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th class="text-center">Date</th>
-                        <th class="text-right">Daily Credit / Udhaar (PKR)</th>
-                        <th class="text-right">Daily Received / Vasool (PKR)</th>
-                        <th class="text-right">Daily Balance (PKR)</th>
-                    </tr>
-                </thead>
-                <tbody id="dailyReportBody">
-                </tbody>
-                <tfoot>
-                    <tr>
-                        <td class="text-center">GRAND TOTAL</td>
-                        <td class="text-right text-danger" id="footTotalCredit">0.00 PKR</td>
-                        <td class="text-right text-success" id="footTotalDebit">0.00 PKR</td>
-                        <td class="text-right text-primary" id="footNetBalance">0.00 PKR</td>
-                    </tr>
-                </tfoot>
-            </table>
-        </div>
+        <table class="sheet-table" id="trialBalanceTable">
+            <thead>
+                <tr>
+                    <th style="width: 80px;">SR# No</th>
+                    <th>Party Name</th>
+                    <th style="text-align: right; width: 220px;">Debit</th>
+                    <th style="text-align: right; width: 220px;">Credit</th>
+                </tr>
+            </thead>
+            <tbody id="trialTableBody">
+                <tr>
+                    <td colspan="4" style="text-align:center;">Loading Trial Balance...</td>
+                </tr>
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="2" style="text-align:right;">TOTAL:</td>
+                    <td id="footDebit" style="text-align:right; color:#e11d48;">0 PKR</td>
+                    <td id="footCredit" style="text-align:right; color:#16a34a;">0 PKR</td>
+                </tr>
+            </tfoot>
+        </table>
     </div>
 
-    <script>
-        // Automatic Date Selection for Current Month
-        function setCurrentMonthDates() {
-            const now = new Date();
-            const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-            const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    <!-- 2. DISPENSER PROFIT REPORT SECTION -->
+    <div id="profitReportSection" style="display: none;">
+        <div class="filter-card">
+            <div class="filter-group" style="flex: 0 1 auto;">
+                <label>📅 Start Date:</label>
+                <input type="date" id="profit_start_date">
+            </div>
+            <div class="filter-group" style="flex: 0 1 auto;">
+                <label>📅 End Date:</label>
+                <input type="date" id="profit_end_date">
+            </div>
+            <button class="btn btn-register" onclick="loadProfitReport()"><i class="fas fa-chart-line"></i> Calculate Profit</button>
+            <button class="btn btn-reset btn-print" onclick="window.print()"><i class="fas fa-print"></i> Print Statement</button>
+        </div>
 
-            // Date format into YYYY-MM-DD
-            document.getElementById('fromDate').value = firstDay.toISOString().split('T')[0];
-            document.getElementById('toDate').value = lastDay.toISOString().split('T')[0];
+        <div class="metric-cards">
+            <div class="card card-balance">
+                <span>Total Litres Sold</span>
+                <h3 id="profitTotalLitres">0.00 Ltr</h3>
+            </div>
+            <div class="card card-credit">
+                <span>Total Sales (Revenue)</span>
+                <h3 id="profitTotalSales">0.00 PKR</h3>
+            </div>
+            <div class="card card-cost">
+                <span>Total Fuel Cost</span>
+                <h3 id="profitTotalCost">0.00 PKR</h3>
+            </div>
+            <div class="card card-expense">
+                <span>Total Expenses</span>
+                <h3 id="profitTotalExpenses">0.00 PKR</h3>
+            </div>
+            <div class="card card-profit">
+                <span>Net Profit</span>
+                <h3 id="profitNetProfit">0.00 PKR</h3>
+            </div>
+        </div>
+
+        <table class="sheet-table">
+            <thead>
+                <tr style="background:#cbd5e1; color:#0f172a;">
+                    <th>Date</th>
+                    <th>Dispenser Nozzle</th>
+                    <th>Product</th>
+                    <th>Litres Sold</th>
+                    <th>Purchase Rate</th>
+                    <th>Sale Rate</th>
+                    <th>Total Cost</th>
+                    <th>Total Revenue</th>
+                    <th>Gross Profit</th>
+                </tr>
+            </thead>
+            <tbody id="profitTableBody">
+                <tr>
+                    <td colspan="9" style="text-align:center;">Select dates and calculate profit.</td>
+                </tr>
+            </tbody>
+            <tfoot id="profitTableFooter" style="background: #f8fafc;">
+            </tfoot>
+        </table>
+    </div>
+
+  <script>
+    const API_TRIAL_URL = '/api/ledger/trial-balance';
+    const API_REPORTS_URL = '/api/report';
+
+    // Safe DOM helper function
+    function setElementText(id, value) {
+        const elem = document.getElementById(id);
+        if (elem) {
+            elem.innerText = value;
+        }
+    }
+
+    function formatLocalDate(d) {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    function setDefaultDates() {
+        const now = new Date();
+        const firstDayObj = new Date(now.getFullYear(), now.getMonth(), 1);
+        
+        const firstDayStr = formatLocalDate(firstDayObj);
+        const todayStr = formatLocalDate(now);
+
+        const tbStart = document.getElementById('tb_start_date');
+        const tbEnd = document.getElementById('tb_end_date');
+        if (tbStart) tbStart.value = firstDayStr;
+        if (tbEnd) tbEnd.value = todayStr;
+
+        const profitStart = document.getElementById('profit_start_date');
+        const profitEnd = document.getElementById('profit_end_date');
+        if (profitStart) profitStart.value = firstDayStr;
+        if (profitEnd) profitEnd.value = todayStr;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const userId = localStorage.getItem('userId');
+        if (!userId) {
+            alert("Session Expired! Pehle login karein.");
+            window.location.href = 'login.html';
+            return;
         }
 
-        // Fetch Live Monthly Data from Database
-        async function fetchMonthlyData() {
-            const fromDate = document.getElementById('fromDate').value;
-            const toDate = document.getElementById('toDate').value;
-            const userId = localStorage.getItem('userId'); // 🔥 LocalStorage se User ID nikaali
+        const today = new Date();
+        setElementText('printDate', "Date: " + today.toLocaleDateString('en-GB'));
 
-            if (!fromDate || !toDate) {
-                alert("Dono dates select karein!");
-                return;
+        setDefaultDates();
+        loadTrialBalance();
+    });
+
+    function logout() {
+        localStorage.clear();
+        window.location.href = 'login.html';
+    }
+
+    function switchReportTab(tab) {
+        const trialSec = document.getElementById('trialReportSection');
+        const profitSec = document.getElementById('profitReportSection');
+        const btns = document.querySelectorAll('.report-tab-btn');
+
+        btns.forEach(b => b.classList.remove('active'));
+
+        if (tab === 'trial') {
+            if (trialSec) trialSec.style.display = 'block';
+            if (profitSec) profitSec.style.display = 'none';
+            if (btns[0]) btns[0].classList.add('active');
+            loadTrialBalance();
+        } else {
+            if (trialSec) trialSec.style.display = 'none';
+            if (profitSec) profitSec.style.display = 'block';
+            if (btns[1]) btns[1].classList.add('active');
+            loadProfitReport();
+        }
+    }
+
+    // --- 1. TRIAL BALANCE LOGIC ---
+    async function loadTrialBalance() {
+        const userId = localStorage.getItem('userId');
+        const tbStart = document.getElementById('tb_start_date');
+        const tbEnd = document.getElementById('tb_end_date');
+        
+        const startDate = tbStart ? tbStart.value : '';
+        const endDate = tbEnd ? tbEnd.value : '';
+
+        const tbody = document.getElementById('trialTableBody');
+        if (!tbody) return;
+
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">Loading...</td></tr>';
+
+        try {
+            let url = `${API_TRIAL_URL}?userId=${userId}`;
+            if (startDate && endDate) {
+                url += `&startDate=${startDate}&endDate=${endDate}`;
             }
 
-            if (!userId) {
-                alert("User session expired! Dobara login karein.");
-                window.location.href = 'login.html';
-                return;
+            const res = await fetch(url);
+            const rawText = await res.text();
+
+            if (!res.ok) {
+                throw new Error(`Server Route Error (${res.status}): Make sure route '${API_TRIAL_URL}' exists on backend.`);
             }
 
+            let result;
             try {
-                // 🔥 URL ke end par `&userId=${userId}` append kar diya
-                const response = await fetch(`/api/report/daily-summary?fromDate=${fromDate}&toDate=${toDate}&userId=${userId}`);
+                result = JSON.parse(rawText);
+            } catch (e) {
+                throw new Error("Backend Returned HTML instead of JSON. Check Route URL or Backend Error Log.");
+            }
 
-                if (!response.ok) {
-                    throw new Error("Server Response Error: " + response.statusText);
+            if (result.status === "Success" || result.success || Array.isArray(result) || result.data) {
+                const listData = Array.isArray(result) ? result : (result.data || []);
+                renderTable(listData);
+            } else {
+                throw new Error(result.message || "Failed to load Trial Balance");
+            }
+        } catch (err) {
+            console.error("Trial Balance Error:", err);
+            tbody.innerHTML = `<tr><td colspan="4" style="color:red; text-align:center; font-weight:bold;">Error: ${err.message}</td></tr>`;
+        }
+    }
+
+    function renderTable(data) {
+    const tbody = document.getElementById('trialTableBody');
+    if (!tbody) return;
+    
+    tbody.innerHTML = '';
+
+    if (!data || data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;">No active accounts found for selected dates.</td></tr>';
+        setElementText('tbTotalDebit', '0 PKR');
+        setElementText('tbTotalCredit', '0 PKR');
+        setElementText('tbNetBalance', '0 PKR');
+        setElementText('footDebit', '0 PKR');
+        setElementText('footCredit', '0 PKR');
+        return;
+    }
+
+    let sumDebit = 0;
+    let sumCredit = 0;
+    let activeRowCount = 0;
+
+    data.forEach((row) => {
+        const debitRaw = Number(row.total_debit || 0);
+        const creditRaw = Number(row.total_credit || 0);
+
+        const netAmount = debitRaw - creditRaw;
+
+        // Hide inactive / 0 balance records completely
+        if (netAmount === 0 && debitRaw === 0 && creditRaw === 0) {
+            return; 
+        }
+
+        let finalDebit = 0;
+        let finalCredit = 0;
+
+        if (netAmount > 0) {
+            finalDebit = netAmount;
+        } else if (netAmount < 0) {
+            finalCredit = Math.abs(netAmount);
+        }
+
+        sumDebit += finalDebit;
+        sumCredit += finalCredit;
+        activeRowCount++;
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${activeRowCount}</td>
+            <td><strong>${row.party_name || '-'}</strong></td>
+            <td style="text-align:right; color:${finalDebit > 0 ? '#e11d48' : '#000'}; font-weight:${finalDebit > 0 ? 'bold' : 'normal'};">
+                ${finalDebit > 0 ? finalDebit.toLocaleString('en-PK') : ''}
+            </td>
+            <td style="text-align:right; color:${finalCredit > 0 ? '#16a34a' : '#000'}; font-weight:${finalCredit > 0 ? 'bold' : 'normal'};">
+                ${finalCredit > 0 ? finalCredit.toLocaleString('en-PK') : ''}
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    // --- CASH IN HAND STRICTLY ON DEBIT SIDE ---
+    // Total Credit aur Total Debit ka balancing difference Debit column mein Cash in Hand ban kar aayega
+    const cashInHandAmount = sumCredit > sumDebit ? (sumCredit - sumDebit) : 0;
+
+    const cashTr = document.createElement('tr');
+    cashTr.style.background = "#fefce8";
+
+    cashTr.innerHTML = `
+        <td>${activeRowCount + 1}</td>
+        <td><strong>CASH IN HAND</strong></td>
+        <td style="text-align:right; color:#e11d48; font-weight:bold;">
+            ${cashInHandAmount.toLocaleString('en-PK')}
+        </td>
+        <td style="text-align:right; color:#16a34a; font-weight:bold;"></td>
+    `;
+    tbody.appendChild(cashTr);
+
+    // Final matching grand total
+    const grandTotalDebit = sumDebit + cashInHandAmount;
+    const grandTotalCredit = sumCredit;
+
+    setElementText('tbTotalDebit', grandTotalDebit.toLocaleString('en-PK') + ' PKR');
+    setElementText('tbTotalCredit', grandTotalCredit.toLocaleString('en-PK') + ' PKR');
+    setElementText('tbNetBalance', '0 PKR');
+
+    setElementText('footDebit', grandTotalDebit.toLocaleString('en-PK') + ' PKR');
+    setElementText('footCredit', grandTotalCredit.toLocaleString('en-PK') + ' PKR');
+}
+    // --- 2. PROFIT REPORT LOGIC ---
+    async function loadProfitReport() {
+        const userId = localStorage.getItem('userId');
+        const pStart = document.getElementById('profit_start_date');
+        const pEnd = document.getElementById('profit_end_date');
+
+        const startDate = pStart ? pStart.value : '';
+        const endDate = pEnd ? pEnd.value : '';
+
+        const tbody = document.getElementById('profitTableBody');
+        const tfoot = document.getElementById('profitTableFooter');
+        
+        if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">Calculating Net Profit...</td></tr>';
+        if (tfoot) tfoot.innerHTML = '';
+
+        try {
+            const query = `${API_REPORTS_URL}/dispenser-profit?userId=${userId}&startDate=${startDate}&endDate=${endDate}`;
+            const res = await fetch(query);
+            const rawText = await res.text();
+
+            if (!res.ok) {
+                throw new Error(`Server returned status ${res.status}: ${rawText.substring(0, 100)}`);
+            }
+
+            const result = JSON.parse(rawText);
+
+            if (result.status === "Success" || result.success) {
+                const summary = result.summary || {};
+                const totalLitres = Number(summary.total_liters_sold || summary.total_litres || 0);
+                const totalSales = Number(summary.total_revenue_pkr || summary.total_sales || 0);
+                const totalCost = Number(summary.total_cost_pkr || summary.total_cost || 0);
+                const grossProfit = Number(summary.gross_profit_pkr || summary.gross_profit || 0);
+                const totalExpenses = Number(summary.total_expenses_pkr || summary.total_expenses || 0);
+                const netProfit = Number(summary.total_profit_pkr || summary.net_profit || 0);
+
+                setElementText('profitTotalLitres', totalLitres.toFixed(2) + ' Ltr');
+                setElementText('profitTotalSales', totalSales.toLocaleString('en-PK') + ' PKR');
+                setElementText('profitTotalCost', totalCost.toLocaleString('en-PK') + ' PKR');
+                setElementText('profitTotalExpenses', totalExpenses.toLocaleString('en-PK') + ' PKR');
+                setElementText('profitNetProfit', netProfit.toLocaleString('en-PK') + ' PKR');
+
+                if (tbody) {
+                    tbody.innerHTML = '';
+                    if (!result.data || result.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">No dispenser sales recorded in selected dates.</td></tr>';
+                    } else {
+                        result.data.forEach(row => {
+                            let dateStr = '-';
+                            const rawDate = row.reading_date || row.date || row.created_at;
+                            if (rawDate) {
+                                const d = new Date(rawDate);
+                                dateStr = isNaN(d) ? rawDate : d.toLocaleDateString('en-GB');
+                            }
+
+                            const nozzle = row.nozzle_name || row.nozzle || row.dispenser_nozzle || '-';
+                            const product = row.fuel_type || row.product || row.product_type || '-';
+                            const liters = Number(row.liters_sold || row.litres || 0);
+                            const costRate = Number(row.cost_rate || row.purchase_rate || 0);
+                            const saleRate = Number(row.selling_rate || row.sale_rate || 0);
+                            const totalCostRow = Number(row.total_cost_pkr || row.total_cost || (liters * costRate));
+                            const totalRevRow = Number(row.total_revenue_pkr || row.total_revenue || (liters * saleRate));
+                            const grossProfitRow = Number(row.gross_profit_pkr || row.gross_profit || (totalRevRow - totalCostRow));
+
+                            const tr = document.createElement('tr');
+                            tr.innerHTML = `
+                                <td>${dateStr}</td>
+                                <td><strong>${nozzle}</strong></td>
+                                <td>${product}</td>
+                                <td>${liters.toFixed(2)} Ltr</td>
+                                <td>${costRate.toFixed(2)} PKR</td>
+                                <td>${saleRate.toFixed(2)} PKR</td>
+                                <td>${totalCostRow.toLocaleString('en-PK')} PKR</td>
+                                <td>${totalRevRow.toLocaleString('en-PK')} PKR</td>
+                                <td style="color:#059669; font-weight:bold;">${grossProfitRow.toLocaleString('en-PK')} PKR</td>
+                            `;
+                            tbody.appendChild(tr);
+                        });
+                    }
                 }
 
-                const data = await response.json();
+                if (tfoot) {
+                    tfoot.innerHTML = `
+                        <tr>
+                            <td colspan="7" style="text-align:right;">Total Sales Gross Profit:</td>
+                            <td colspan="2" style="color:#047857; text-align:right;">+ ${grossProfit.toLocaleString('en-PK')} PKR</td>
+                        </tr>
+                        <tr style="color: #dc2626;">
+                            <td colspan="7" style="text-align:right;">(-) Operating Expenses:</td>
+                            <td colspan="2" style="text-align:right;">- ${totalExpenses.toLocaleString('en-PK')} PKR</td>
+                        </tr>
+                        <tr style="background: #e2e8f0; font-size: 15px;">
+                            <td colspan="7" style="text-align:right;">NET PROFIT:</td>
+                            <td colspan="2" style="color:${netProfit >= 0 ? '#059669' : '#dc2626'}; text-align:right;">${netProfit.toLocaleString('en-PK')} PKR</td>
+                        </tr>
+                    `;
+                }
 
-                // Render Live Database Data
-                renderTableAndTotals(data);
-
-            } catch (err) {
-                console.error("API Fetch Error:", err);
-                const tbody = document.getElementById('dailyReportBody');
-                tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger">Database se live data fetch karne mein masla aaya hai. Check terminal logs!</td></tr>`;
+            } else {
+                throw new Error(result.message || "Failed to calculate profit");
             }
+        } catch (err) {
+            console.error("Profit Report Error:", err);
+            if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="color:red; text-align:center;">Error: ${err.message}</td></tr>`;
         }
-
-        // Render Table Rows & Compute Totals
-        function renderTableAndTotals(rows) {
-            const tbody = document.getElementById('dailyReportBody');
-            tbody.innerHTML = '';
-
-            let grandCredit = 0;
-            let grandDebit = 0;
-
-            if (!rows || rows.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="4" class="text-center">Is date range mein koi daily sheet data nahi mila.</td></tr>`;
-
-                // Clear Stats
-                updateStatWidgets(0, 0, 0);
-                return;
-            }
-
-            rows.forEach(row => {
-                const credit = Number(row.total_credit || 0);
-                const debit = Number(row.total_debit || 0);
-                const balance = credit - debit;
-
-                grandCredit += credit;
-                grandDebit += debit;
-
-                // Date formatting to DD/MM/YYYY
-                const formattedDate = new Date(row.report_date).toLocaleDateString('en-GB');
-
-                tbody.innerHTML += `
-                <tr>
-                    <td class="text-center">${formattedDate}</td>
-                    <td class="text-right text-danger">${credit.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR</td>
-                    <td class="text-right text-success">${debit.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR</td>
-                    <td class="text-right font-weight-bold">${balance.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR</td>
-                </tr>
-            `;
-            });
-
-            const netBalance = grandCredit - grandDebit;
-            updateStatWidgets(grandCredit, grandDebit, netBalance);
-        }
-
-        // Helper Function to Update Top Stat Cards & Footer Totals
-        function updateStatWidgets(credit, debit, balance) {
-            // Update Stat Cards
-            document.getElementById('widgetTotalCredit').innerText = `${credit.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`;
-            document.getElementById('widgetTotalDebit').innerText = `${debit.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`;
-            document.getElementById('widgetNetBalance').innerText = `${balance.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`;
-
-            // Update Footer Table Row
-            document.getElementById('footTotalCredit').innerText = `${credit.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`;
-            document.getElementById('footTotalDebit').innerText = `${debit.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`;
-            document.getElementById('footNetBalance').innerText = `${balance.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`;
-        }
-
-        // Initialize Page
-        window.onload = () => {
-            setCurrentMonthDates();
-            fetchMonthlyData();
-        };
-
-
-        document.getElementById('logoutBtn').addEventListener('click', () => {
-            // 1. LocalStorage se user ka data clear karen
-            localStorage.removeItem('user_id');
-            localStorage.removeItem('username');
-
-            // Agar aap ne koi token ya extra data save kiya tha, toh poori storage bhi clear kar sakte hain:
-            // localStorage.clear();
-
-            // 2. Alert message (Optional)
-            alert("Aap successfully logout ho chuke hain!");
-
-            // 3. Wapas Login page par redirect karen
-            window.location.href = 'login.html';
-        });
-    </script>
+    }
+</script>
 </body>
 
 </html>
