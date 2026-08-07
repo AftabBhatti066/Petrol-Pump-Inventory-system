@@ -2,10 +2,6 @@ const express = require('express');
 const path = require('path');
 const cors = require('cors');
 
-// 1. All Route Imports
-const authRoutes = require('./routes/authRoutes');
-const reportRoutes = require('./routes/reportRoutes'); 
-
 const app = express();
 
 // Middlewares
@@ -31,12 +27,37 @@ app.get('/login', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-// 2. Register ALL API Routes Here
-app.use('/api', authRoutes);               // Login, Auth & Main APIs
-app.use('/api/reports', reportRoutes);     // Reports APIs
+app.get('/dashboard', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+});
 
-// Note: Agar index.js mein koi aur extra routes register hue thay,
-// toh unko bhi yahan app.use('/api/...', extraRoutes) karke add kar dein.
+// ==========================================
+// ALL API ROUTES REGISTERED HERE
+// ==========================================
+const authRoutes = require('./routes/authRoutes');
+app.use('/api', authRoutes);
+
+const fuelRoutes = require('./routes/fuelRoutes');
+app.use('/api/fuel', fuelRoutes);
+
+const meterRoutes = require('./routes/meterRoutes');
+app.use('/api/meter', meterRoutes);
+
+const ledgerRoutes = require('./routes/ledgerRoutes');
+app.use('/api/ledger', ledgerRoutes);
+
+const dailySheetRoutes = require('./routes/dailySheetRoutes');
+app.use('/api/daily-sheet', dailySheetRoutes);
+
+// DASHBOARD ROUTE (Crucial Fix)
+const dashboardRoutes = require('./routes/dashboardRoutes');
+app.use('/api/dashboard', dashboardRoutes);
+
+const reportRoutes = require('./routes/reportRoutes'); 
+app.use('/api/report', reportRoutes);
+
+const expenseRoutes = require('./routes/expenseRoutes');
+app.use('/api/expense', expenseRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
