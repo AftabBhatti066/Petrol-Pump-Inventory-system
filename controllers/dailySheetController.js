@@ -278,33 +278,52 @@ exports.deleteCustomerPermanently = async (req, res) => {
         res.status(500).json({ status: "Error", db_error: error.message });
     }
 };
-
 // 7. Static Expenses Report
 exports.getExpensesReport = async (req, res) => {
     try {
-        const { userId } = req.query;
+        let { userId, startDate, start_date, endDate, end_date } = req.query;
+        let sDate = startDate || start_date;
+        let eDate = endDate || end_date;
 
         if (!userId) {
             return res.status(400).json({ status: "Error", message: "User ID missing hai!" });
         }
 
+        if (typeof userId === 'string') {
+            userId = userId.split(':')[0].trim();
+        }
+        const cleanUserId = parseInt(userId, 10);
+
+        const EXPENSE_SEARCH_IDS = ['mi', 'i', 'bb', 'pm', 'rg', 's', 'l'];
+
+        // 🚀 Agar Frontend se dates na aayi hon, to default Aaj (Today) ki date set karein
+        let dateCondition = `AND DATE(ds.sheet_date) = CURDATE()`;
+        let queryParams = [cleanUserId, EXPENSE_SEARCH_IDS];
+
+        if (sDate && eDate) {
+            dateCondition = `AND DATE(ds.sheet_date) BETWEEN ? AND ?`;
+            queryParams = [cleanUserId, EXPENSE_SEARCH_IDS, sDate, eDate];
+        }
+
+        // 🚀 INNER JOIN ensures ke sirf wohi entries aayein jo us date ko enter hui hain
         const query = `
             SELECT 
                 LOWER(TRIM(dc.search_id)) AS search_id,
                 dc.customer_name AS account_name,
                 COALESCE(SUM(ds.debit_udhaar), 0) AS total_debit,
                 COUNT(ds.id) AS transaction_count
-            FROM daily_customers dc
-            LEFT JOIN daily_sheets ds 
+            FROM daily_sheets ds
+            INNER JOIN daily_customers dc 
                 ON LOWER(TRIM(dc.search_id)) = LOWER(TRIM(ds.search_id))
                 AND ds.user_id = dc.user_id
-            WHERE dc.user_id = ? 
+            WHERE ds.user_id = ? 
               AND LOWER(TRIM(dc.search_id)) IN (?)
-            GROUP BY LOWER(TRIM(dc.search_id)), dc.customer_name
+              ${dateCondition}
+            GROUP BY LOWER(TRIM(dc.search_id)), dc.customer_name, dc.id
             ORDER BY dc.id ASC
         `;
 
-        const [rows] = await db.query(query, [userId, EXPENSE_SEARCH_IDS]);
+        const [rows] = await db.query(query, queryParams);
 
         let overallExpense = 0;
         const reportData = rows.map((row, index) => {
@@ -315,12 +334,12 @@ exports.getExpensesReport = async (req, res) => {
                 sr_no: index + 1,
                 search_id: row.search_id,
                 account_name: row.account_name,
-                total_transactions: row.transaction_count,
+                total_transactions: row.transaction_count || 0,
                 total_amount: total
             };
         });
 
-        res.json({
+        return res.json({
             status: "Success",
             overall_expense: overallExpense,
             data: reportData
@@ -328,6 +347,10 @@ exports.getExpensesReport = async (req, res) => {
 
     } catch (error) {
         console.error("Fetch Static Expenses Error:", error);
-        res.status(500).json({ status: "Error", db_error: error.message });
+        return res.status(500).json({ 
+            status: "Error", 
+            message: "Expense report fetch karne mein masla aaya hai.",
+            db_error: error.message 
+        });
     }
 };

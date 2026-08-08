@@ -7,5 +7,6 @@ router.get('/customer-ledger', reportController.getCustomerLedgerReport);
 router.get('/trial-balance', reportController.getTrialBalance);
 router.get('/dispenser-profit', reportController.getDispenserProfitReport);
 router.get('/daily-summary', reportController.getDailySummary);
+router.post('/month-end-profit', reportController.postMonthEndProfit);
 
 module.exports = router;

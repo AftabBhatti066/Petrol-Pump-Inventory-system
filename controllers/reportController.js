@@ -80,7 +80,7 @@ exports.getCustomerLedgerReport = async (req, res) => {
     }
 };
 
-// 2. Get Trial Balance Report (Updated with Active Account Date Filtering)
+// 2. Get Trial Balance Report
 exports.getTrialBalance = async (req, res) => {
     try {
         const { userId, startDate, start_date, endDate, end_date } = req.query;
@@ -90,7 +90,6 @@ exports.getTrialBalance = async (req, res) => {
         let dateClauseCL = '';
         let dateClauseDC = '';
         let dateClauseDS = '';
-        let dateParams = [];
 
         if (sDate && eDate) {
             dateClauseCL = ' AND DATE(created_at) BETWEEN ? AND ?';
@@ -145,22 +144,16 @@ exports.getTrialBalance = async (req, res) => {
             ORDER BY party_name ASC;
         `;
 
-        // Parameters array construct karein
         const queryParams = [];
-        
-        // 1. credit_ledgers
         if (userId) queryParams.push(userId);
         if (sDate && eDate) queryParams.push(sDate, eDate);
 
-        // 2. daily_customers
         if (userId) queryParams.push(userId);
         if (sDate && eDate) queryParams.push(sDate, eDate);
 
-        // 3. daily_sheets
         if (userId) queryParams.push(userId);
         if (sDate && eDate) queryParams.push(sDate, eDate);
 
-        // 4. chart_of_accounts
         if (userId) queryParams.push(userId);
 
         const [results] = await db.query(query, queryParams);
@@ -180,6 +173,7 @@ exports.getTrialBalance = async (req, res) => {
         });
     }
 };
+
 // 3. Get Dispenser Profit Report
 exports.getDispenserProfitReport = async (req, res) => {
     try {
@@ -323,6 +317,116 @@ exports.getDailySummary = async (req, res) => {
             success: false,
             status: "Error",
             message: 'Daily Summary report fetch nahi ho saki.',
+            error: error.message
+        });
+    }
+};
+
+// 🚀 5. Post Month-End Profit to Diesel & Super Accounts
+exports.postMonthEndProfit = async (req, res) => {
+    try {
+        const { startDate, start_date, endDate, end_date, userId } = req.body;
+        const sDate = startDate || start_date;
+        const eDate = endDate || end_date;
+
+        if (!sDate || !eDate || !userId) {
+            return res.status(400).json({
+                success: false,
+                status: "Error",
+                message: "startDate, endDate aur userId zaroori hain."
+            });
+        }
+
+        // Meter Readings se fuel-wise profit calculate karna
+        let fuelProfitQuery = `
+            SELECT 
+                TRIM(mr.fuel_type) AS fuel_type,
+                SUM(
+                    (COALESCE(mr.liters_sold, 0) * COALESCE(fr.rate_per_litre, 0)) - 
+                    (COALESCE(mr.liters_sold, 0) * COALESCE(fr.purchase_price, 0))
+                ) AS fuel_profit
+            FROM meter_readings mr
+            LEFT JOIN (
+                SELECT product_type, rate_per_litre, purchase_price
+                FROM fuel_rates
+                WHERE id IN (SELECT MAX(id) FROM fuel_rates GROUP BY product_type)
+            ) fr ON LOWER(TRIM(mr.fuel_type)) LIKE CONCAT('%', LOWER(TRIM(fr.product_type)), '%')
+                 OR LOWER(TRIM(fr.product_type)) LIKE CONCAT('%', LOWER(TRIM(mr.fuel_type)), '%')
+            WHERE DATE(mr.reading_date) BETWEEN ? AND ?
+              AND (mr.user_id = ? OR mr.user_id IS NULL)
+            GROUP BY mr.fuel_type
+        `;
+
+        const [profits] = await db.query(fuelProfitQuery, [sDate, eDate, userId]);
+
+        if (profits.length === 0) {
+            return res.status(400).json({
+                success: false,
+                status: "Error",
+                message: "Is date range ke darmiyan koi fuel sales ya profit nahi mili."
+            });
+        }
+
+        let addedRecords = [];
+
+        for (const row of profits) {
+            const rawFuelName = (row.fuel_type || '').toLowerCase();
+            const profitAmount = parseFloat(row.fuel_profit) || 0;
+
+            if (profitAmount <= 0) continue;
+
+            let searchId = '';
+            let targetCustomerName = '';
+
+            if (rawFuelName.includes('diesel')) {
+                searchId = 'diesel';
+                targetCustomerName = 'Diesel Khata';
+            } else if (rawFuelName.includes('super') || rawFuelName.includes('petrol')) {
+                searchId = 'super';
+                targetCustomerName = 'Super Khata';
+            }
+
+            if (searchId) {
+                // Ensure customer name exists in daily_customers
+                const [custRes] = await db.query(
+                    'SELECT customer_name FROM daily_customers WHERE user_id = ? AND search_id = ?',
+                    [userId, searchId]
+                );
+
+                if (custRes.length > 0) {
+                    targetCustomerName = custRes[0].customer_name;
+                }
+
+                const description = `Profit Return - ${targetCustomerName}`;
+
+                // Insert into credit_ledgers as Credit entry
+                const [insertRes] = await db.query(
+                    `INSERT INTO credit_ledgers (user_id, customer_name, description, debit_pkr, credit_pkr, created_at) 
+                     VALUES (?, ?, ?, 0, ?, NOW())`,
+                    [userId, targetCustomerName, description, profitAmount]
+                );
+
+                addedRecords.push({
+                    customer: targetCustomerName,
+                    amount: profitAmount,
+                    description: description
+                });
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            status: "Success",
+            message: "Month-End fuel profit successfully return/post kar di gayi hai.",
+            details: addedRecords
+        });
+
+    } catch (error) {
+        console.error('Error posting month-end profit:', error);
+        return res.status(500).json({
+            success: false,
+            status: "Error",
+            message: "Month-End profit post karne mein masla aaya hai.",
             error: error.message
         });
     }

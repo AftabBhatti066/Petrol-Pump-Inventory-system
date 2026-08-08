@@ -30,6 +30,27 @@
         <a href="reports.html" class="tab-item">📁 Reports</a>
     </div>
 
+    <!-- Date Filter Bar Section -->
+    <div class="filter-card" style="margin-top: 15px; padding: 12px; background: #f8f9fa; border: 1px solid #dcdcdc; border-radius: 6px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 6px;">
+            <label style="font-weight: bold; font-size: 13px;">From Date:</label>
+            <input type="date" id="startDate" class="form-control" style="padding: 5px; border: 1px solid #ccc; border-radius: 4px;">
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 6px;">
+            <label style="font-weight: bold; font-size: 13px;">To Date:</label>
+            <input type="date" id="endDate" class="form-control" style="padding: 5px; border: 1px solid #ccc; border-radius: 4px;">
+        </div>
+
+        <button id="btnFilter" onclick="applyDateFilter()" class="btn btn-primary" style="padding: 6px 15px; background-color: #2980b9; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            🔍 Search
+        </button>
+
+        <button id="btnReset" onclick="resetToToday()" class="btn btn-secondary" style="padding: 6px 12px; background-color: #7f8c8d; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            🔄 Today
+        </button>
+    </div>
+
     <div class="section-header-box" style="margin-top: 15px;">
         <span>Fixed Expense Accounts Summary</span>
         <span style="font-weight: normal; font-size: 12px;">Realtime Total Debit Summary</span>
@@ -64,18 +85,51 @@
     <script>
     const API_URL = '/api/daily-sheet';
 
-    async function loadStaticExpensesReport() {
-        const userId = localStorage.getItem('userId');
+    // Helper: Local date ko YYYY-MM-DD format me convert karne ke liye
+    function getTodayFormatted() {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    // Helper: Safe userId extractor
+    function getCleanUserId() {
+        let rawUserId = localStorage.getItem('userId');
+        if (!rawUserId) return null;
+
+        try {
+            const parsed = JSON.parse(rawUserId);
+            if (parsed && parsed.id) rawUserId = parsed.id;
+            else if (parsed && parsed.userId) rawUserId = parsed.userId;
+        } catch (e) {
+            // Raw string hi hai
+        }
+
+        const cleanId = String(rawUserId).split(':')[0].trim();
+        return isNaN(cleanId) ? null : cleanId;
+    }
+
+    async function loadStaticExpensesReport(sDate, eDate) {
+        const userId = getCleanUserId();
+        
         if (!userId) { 
             window.location.href = 'login.html'; 
             return; 
         }
 
         try {
-            const res = await fetch(`${API_URL}/expenses-report?userId=${userId}`);
+            let fetchUrl = `${API_URL}/expenses-report?userId=${encodeURIComponent(userId)}`;
+            
+            if (sDate && eDate) {
+                fetchUrl += `&startDate=${encodeURIComponent(sDate)}&endDate=${encodeURIComponent(eDate)}`;
+            }
+
+            const res = await fetch(fetchUrl);
             const result = await res.json();
 
-            if (result.status === "Success" && Array.isArray(result.data)) {
+            if (res.ok && result.status === "Success" && Array.isArray(result.data)) {
                 renderExpenseTable(result.data, result.overall_expense);
             } else {
                 renderExpenseTable([], 0);
@@ -91,19 +145,20 @@
         tbody.innerHTML = "";
 
         if (!records || records.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="5" class="text-center" style="padding: 15px;">No expense data found.</td></tr>`;
-            document.getElementById('lbl_grand_expense').textContent = "0";
+            tbody.innerHTML = `<tr><td colspan="5" class="text-center" style="padding: 15px; color: #7f8c8d;">No expenses added for the selected date.</td></tr>`;
+            const lblExpense = document.getElementById('lbl_grand_expense');
+            if (lblExpense) lblExpense.textContent = "0";
             return;
         }
 
-        records.forEach((row) => {
+        records.forEach((row, index) => {
             const tr = document.createElement('tr');
 
             tr.innerHTML = `
-                <td class="text-center text-bold">${row.sr_no}</td>
+                <td class="text-center text-bold">${row.sr_no || (index + 1)}</td>
                 <td class="text-center"><strong>${row.search_id}</strong></td>
                 <td style="font-weight: bold; color: #2c3e50;">${row.account_name}</td>
-                <td class="text-center">${row.total_transactions}</td>
+                <td class="text-center">${row.total_transactions || row.total_entries || 0}</td>
                 <td class="text-bold" style="color: #c0392b; text-align: right; padding-right: 15px;">
                     ${(parseFloat(row.total_amount) || 0).toLocaleString()} PKR
                 </td>
@@ -112,19 +167,58 @@
             tbody.appendChild(tr);
         });
 
-        document.getElementById('lbl_grand_expense').textContent = (grandTotal || 0).toLocaleString();
+        const lblExpense = document.getElementById('lbl_grand_expense');
+        if (lblExpense) {
+            lblExpense.textContent = (grandTotal || 0).toLocaleString();
+        }
     }
 
+    // Filter Apply Button
+    function applyDateFilter() {
+        const sDate = document.getElementById('startDate').value;
+        const eDate = document.getElementById('endDate').value;
+
+        if (!sDate || !eDate) {
+            alert("Meharbani karke dono dates (From Date aur To Date) select karein!");
+            return;
+        }
+
+        if (sDate > eDate) {
+            alert("From Date, To Date se bari nahi ho sakti!");
+            return;
+        }
+
+        loadStaticExpensesReport(sDate, eDate);
+    }
+
+    // Reset back to Today
+    function resetToToday() {
+        const todayStr = getTodayFormatted();
+        document.getElementById('startDate').value = todayStr;
+        document.getElementById('endDate').value = todayStr;
+        loadStaticExpensesReport(todayStr, todayStr);
+    }
+
+    // Initial Load - Set Today's Date by Default
     document.addEventListener('DOMContentLoaded', () => {
-        loadStaticExpensesReport();
+        const todayStr = getTodayFormatted();
+        document.getElementById('startDate').value = todayStr;
+        document.getElementById('endDate').value = todayStr;
+        
+        // Initial call for Today's expenses only
+        loadStaticExpensesReport(todayStr, todayStr);
     });
 
-    document.getElementById('logoutBtn').addEventListener('click', () => {
-        localStorage.removeItem('userId');
-        localStorage.removeItem('username');
-        alert("Aap successfully logout ho chuke hain!");
-        window.location.href = 'login.html';
-    });
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+            localStorage.removeItem('userId');
+            localStorage.removeItem('username');
+            localStorage.removeItem('user');
+            alert("Aap successfully logout ho chuke hain!");
+            window.location.href = 'login.html';
+        });
+    }
     </script>
 </body>
 

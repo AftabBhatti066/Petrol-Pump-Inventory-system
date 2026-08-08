@@ -1,8 +1,39 @@
-// Centralized DB config import karein taakay double pools na banein aur connections control mein rahein
+// Centralized DB config import karein
 const db = require('../config/db'); 
 const bcrypt = require('bcrypt');
 
-// 1. Register Function (With Automatic Stock Initialization for All 9 Lubricants & Fuels)
+// 🚀 Helper Function: Sabhi 9 Static Customers Add karne ke liye
+const ensureStaticCustomers = async (userId) => {
+    const staticCustomers = [
+        { customer_name: 'Super Khata', search_id: 'sp' },
+        { customer_name: 'Diesel Khata', search_id: 'dl' },
+        { customer_name: 'mufariq ikhrajat', search_id: 'mi' },
+        { customer_name: 'innum', search_id: 'i' },
+        { customer_name: 'bill bajli', search_id: 'bb' },
+        { customer_name: 'petrol moter cycle', search_id: 'pm' },
+        { customer_name: 'raent gari', search_id: 'rg' },
+        { customer_name: 'salary', search_id: 's' },
+        { customer_name: 'less', search_id: 'l' }
+    ];
+
+    for (const customer of staticCustomers) {
+        // Check agar yeh static customer pehle se user_id ke sath majood na ho
+        const [existing] = await db.query(
+            'SELECT id FROM daily_customers WHERE user_id = ? AND search_id = ?',
+            [userId, customer.search_id]
+        );
+
+        if (existing.length === 0) {
+            // Agar nahi hai to insert kar do
+            await db.query(
+                'INSERT INTO daily_customers (customer_name, search_id, user_id) VALUES (?, ?, ?)',
+                [customer.customer_name, customer.search_id, userId]
+            );
+        }
+    }
+};
+
+// 1. Register Function
 const registerUser = async (req, res) => {
     const { fullName, username, password } = req.body;
     console.log("Register Request Received:", req.body);
@@ -12,7 +43,6 @@ const registerUser = async (req, res) => {
     }
 
     try {
-        // Checking if user already exists
         const [existing] = await db.query('SELECT id FROM users WHERE username = ?', [username]);
 
         if (existing.length > 0) {
@@ -21,18 +51,14 @@ const registerUser = async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // User insert kiya
         const [result] = await db.query(
             'INSERT INTO users (full_name, username, password, role) VALUES (?, ?, ?, ?)',
             [fullName, username, hashedPassword, 'Manager']
         );
 
-        console.log("User Insert Result:", result);
-        
-        // Naye user ki unique ID extract ki
         const newUserId = result.insertId;
 
-        // 🚀 A. Automatic Fuel Stock Initialize karna (Default 0.00 stock)
+        // 🚀 A. Automatic Fuel Stock Initialize karna
         const fuelQuery = `
             INSERT INTO fuel_stocks (fuel_type, current_stock, user_id) 
             VALUES 
@@ -55,17 +81,18 @@ const registerUser = async (req, res) => {
             ('Deo 8000 4Ltrs', 0, ?),
             ('Deo 8000 10Ltrs', 0, ?)
         `;
-        
-        // passes newUserId 9 times for the 9 placeholders (?)
         await db.query(lubricantQuery, [
             newUserId, newUserId, newUserId, 
             newUserId, newUserId, newUserId, 
             newUserId, newUserId, newUserId
         ]);
 
-        console.log(`All 9 stocks initialized automatically for User ID: ${newUserId}`);
+        // 🚀 C. Automatic Static Customers Create karna (All 9 static accounts)
+        await ensureStaticCustomers(newUserId);
 
-        return res.json({ status: "Success", message: "Manager account aur default stocks create ho gaye hain!" });
+        console.log(`Stocks and All 9 Static Customers initialized automatically for User ID: ${newUserId}`);
+
+        return res.json({ status: "Success", message: "Manager account, default stocks aur static khatay create ho gaye hain!" });
     } catch (err) {
         console.error("Database Insert Error:", err);
         return res.status(500).json({ status: "Error", message: "Database Error: " + err.message });
@@ -94,6 +121,9 @@ const loginUser = async (req, res) => {
             return res.status(401).json({ status: "Error", message: "Ghalat Username ya Password hai!" });
         }
 
+        // 🚀 Login par automatic check runs so every user gets all 9 static accounts
+        await ensureStaticCustomers(user.id);
+
         return res.json({
             status: "Success",
             message: "Login successful",
@@ -105,7 +135,6 @@ const loginUser = async (req, res) => {
     }
 };
 
-// Explicit Object Export
 module.exports = {
     registerUser,
     loginUser
