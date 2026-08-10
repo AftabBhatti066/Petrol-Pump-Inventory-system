@@ -37,7 +37,7 @@
         <span style="font-weight: normal; font-size: 12px;">Status: Realtime Dynamic Triggers Fixed</span>
     </div>
 
-    <div class="control-panel">
+    <div class="control-panel" style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
         <div class="add-cust-group">
             <span style="color: #6c3483; font-weight: bold;">+ New Cust:</span>
             <input type="text" id="new_cust_name" placeholder="Name" style="width: 180px;">
@@ -45,7 +45,11 @@
             <button class="btn-add" onclick="addNewCustomer()">Add Master Cust</button>
         </div>
 
-        
+        <!-- SEARCH FILTER BAR -->
+        <div class="search-filter-group" style="display: flex; align-items: center; gap: 5px;">
+            <span style="font-weight: bold; color: #1f618d;">🔍 Filter Entries:</span>
+            <input type="text" id="sheet_search_filter" placeholder="Search by ID or Name..." oninput="filterSheetTable()" style="width: 220px; padding: 5px; border: 1px solid #ccc; border-radius: 4px;">
+        </div>
 
         <button class="btn-save-sheet" onclick="saveAllSheetEntries()">💾 Save Daily Sheet</button>
     </div>
@@ -76,384 +80,423 @@
         </div>
     </div>
 
-  <script>
-        const API_URL = '/api/daily-sheet';
-        let customerMap = {};
+   <script>
+    const API_URL = '/api/daily-sheet';
+    let customerMap = {};
 
-        // Opening Cumulative Debit & Credit values from previous days
-        let globalOpeningDebit = 0;
-        let globalOpeningCredit = 0;
+    // Opening Cumulative Debit & Credit values from previous days
+    let globalOpeningDebit = 0;
+    let globalOpeningCredit = 0;
 
-        function getTodayDateString() {
-            const today = new Date();
-            const year = today.getFullYear();
-            const month = String(today.getMonth() + 1).padStart(2, '0');
-            const day = String(today.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-        }
+    function getTodayDateString() {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
 
-        async function loadCustomerMasterMap() {
-            const userId = localStorage.getItem('userId');
-            if (!userId) return;
+    async function loadCustomerMasterMap() {
+        const userId = localStorage.getItem('userId');
+        if (!userId) return;
 
-            customerMap = {};
+        customerMap = {};
 
-            try {
-                const res = await fetch(`/api/daily-sheet/customers?userId=${userId}`);
-                if (res.ok) {
-                    const result = await res.json();
-                    const customers = result.data || result.customers || [];
+        try {
+            const res = await fetch(`/api/daily-sheet/customers?userId=${userId}`);
+            if (res.ok) {
+                const result = await res.json();
+                const customers = result.data || result.customers || [];
 
-                    if (Array.isArray(customers)) {
-                        customers.forEach(c => {
-                            const sId = c.search_id || c.searchId || '';
-                            const cName = c.customer_name || c.name || '';
-                            if (sId) {
-                                customerMap[String(sId).trim().toLowerCase()] = String(cName).trim();
-                            }
-                        });
-                    }
-                }
-            } catch (err) {
-                console.warn("Failed to fetch customer map:", err);
-            }
-        }
-
-        async function loadSheetByDate() {
-            const dateInput = document.getElementById('working_date');
-            if (!dateInput || !dateInput.value) return;
-
-            const currentDate = dateInput.value;
-            const userId = localStorage.getItem('userId');
-            if (!userId) {
-                window.location.href = 'login.html';
-                return;
-            }
-
-            await loadCustomerMasterMap();
-
-            try {
-                const response = await fetch(`${API_URL}/view/${currentDate}?userId=${userId}`);
-                const result = await response.json();
-
-                const entriesData = result.entries || result.data || (Array.isArray(result) ? result : []);
-
-                if ((result.status === "Success" || response.ok) && Array.isArray(entriesData)) {
-                    entriesData.forEach(entry => {
-                        if (entry.search_id && entry.customer_name) {
-                            const cleanId = String(entry.search_id).trim().toLowerCase();
-                            customerMap[cleanId] = String(entry.customer_name).trim();
+                if (Array.isArray(customers)) {
+                    customers.forEach(c => {
+                        const sId = c.search_id || c.searchId || '';
+                        const cName = c.customer_name || c.name || '';
+                        if (sId) {
+                            customerMap[String(sId).trim().toLowerCase()] = String(cName).trim();
                         }
                     });
-
-                    // Match Backend Response keys for Cumulative Opening Totals
-                    globalOpeningDebit = parseFloat(result.opening_debit) || 0;
-                    globalOpeningCredit = parseFloat(result.opening_credit) || 0;
-
-                    // Filter out non-used rows
-                    const activeEntries = entriesData.filter(entry => {
-                        const debit = parseFloat(entry.debit_udhaar) || 0;
-                        const credit = parseFloat(entry.credit_vasooli) || 0;
-                        const desc = entry.description ? String(entry.description).trim() : '';
-                        return debit > 0 || credit > 0 || desc.length > 0;
-                    });
-
-                    renderTableRows(activeEntries);
-
-                    const opening = parseFloat(result.opening_balance) || 0;
-                    const closing = parseFloat(result.closing_balance) || 0;
-                    updateOpeningAndClosingUI(opening, closing);
-
-                } else {
-                    globalOpeningDebit = 0;
-                    globalOpeningCredit = 0;
-                    renderTableRows([]);
-                    updateOpeningAndClosingUI(0, 0);
                 }
-            } catch (err) {
-                console.error("Sheet load error:", err);
+            }
+        } catch (err) {
+            console.warn("Failed to fetch customer map:", err);
+        }
+    }
+
+    async function loadSheetByDate() {
+        const dateInput = document.getElementById('working_date');
+        if (!dateInput || !dateInput.value) return;
+
+        const currentDate = dateInput.value;
+        const userId = localStorage.getItem('userId');
+        if (!userId) {
+            window.location.href = 'login.html';
+            return;
+        }
+
+        await loadCustomerMasterMap();
+
+        try {
+            const response = await fetch(`${API_URL}/view/${currentDate}?userId=${userId}`);
+            const result = await response.json();
+
+            let entriesData = result.entries || result.data || (Array.isArray(result) ? result : []);
+
+            if ((result.status === "Success" || response.ok) && Array.isArray(entriesData)) {
+                entriesData.forEach(entry => {
+                    if (entry.search_id && entry.customer_name) {
+                        const cleanId = String(entry.search_id).trim().toLowerCase();
+                        customerMap[cleanId] = String(entry.customer_name).trim();
+                    }
+                });
+
+                // Match Backend Response keys for Cumulative Opening Totals
+                globalOpeningDebit = parseFloat(result.opening_debit) || 0;
+                globalOpeningCredit = parseFloat(result.opening_credit) || 0;
+
+                // Filter out non-used rows
+                const activeEntries = entriesData.filter(entry => {
+                    const debit = parseFloat(entry.debit_udhaar) || 0;
+                    const credit = parseFloat(entry.credit_vasooli) || 0;
+                    const desc = entry.description ? String(entry.description).trim() : '';
+                    return debit > 0 || credit > 0 || desc.length > 0;
+                });
+
+                // --- CHRONOLOGICAL SORTING (OLDEST FIRST -> NEWEST AT LAST/BOTTOM) ---
+                activeEntries.sort((a, b) => {
+                    const timeA = a.created_at ? new Date(a.created_at).getTime() : (a.id || 0);
+                    const timeB = b.created_at ? new Date(b.created_at).getTime() : (b.id || 0);
+                    return timeA - timeB; // Ascending Order (Newest at Last)
+                });
+
+                renderTableRows(activeEntries);
+
+                const opening = parseFloat(result.opening_balance) || 0;
+                const closing = parseFloat(result.closing_balance) || 0;
+                updateOpeningAndClosingUI(opening, closing);
+
+            } else {
                 globalOpeningDebit = 0;
                 globalOpeningCredit = 0;
                 renderTableRows([]);
                 updateOpeningAndClosingUI(0, 0);
             }
+        } catch (err) {
+            console.error("Sheet load error:", err);
+            globalOpeningDebit = 0;
+            globalOpeningCredit = 0;
+            renderTableRows([]);
+            updateOpeningAndClosingUI(0, 0);
         }
+    }
 
-        function renderTableRows(entries) {
-            const tbody = document.getElementById('sheetTableBody');
-            tbody.innerHTML = "";
+    function renderTableRows(entries) {
+        const tbody = document.getElementById('sheetTableBody');
+        tbody.innerHTML = "";
 
-            if (!entries || entries.length === 0) {
-                addNewEmptyRow(false);
-                recalculateTotals();
-                return;
-            }
-
-            entries.forEach((row, index) => {
-                appendRowToTable(row, index + 1, false);
-            });
-
+        if (!entries || entries.length === 0) {
             addNewEmptyRow(false);
             recalculateTotals();
+            return;
         }
 
-        function appendRowToTable(data = {}, srNo = 1, shouldFocus = false) {
-            const tbody = document.getElementById('sheetTableBody');
-            const tr = document.createElement('tr');
+        entries.forEach((row, index) => {
+            appendRowToTable(row, index + 1, false);
+        });
 
-            const searchIdVal = data.search_id ? String(data.search_id).trim() : '';
-            const searchIdKey = searchIdVal.toLowerCase();
+        addNewEmptyRow(false);
+        recalculateTotals();
+        
+        // Clear search filter input when re-rendering
+        const filterInput = document.getElementById('sheet_search_filter');
+        if (filterInput) filterInput.value = '';
+    }
 
-            if (data.id) tr.setAttribute('data-db-id', data.id);
-            tr.setAttribute('data-search-id', searchIdKey);
+    function appendRowToTable(data = {}, srNo = 1, shouldFocus = false) {
+        const tbody = document.getElementById('sheetTableBody');
+        const tr = document.createElement('tr');
 
-            const debitVal = (data.debit_udhaar !== undefined && data.debit_udhaar !== null && parseFloat(data.debit_udhaar) !== 0) ? data.debit_udhaar : '';
-            const creditVal = (data.credit_vasooli !== undefined && data.credit_vasooli !== null && parseFloat(data.credit_vasooli) !== 0) ? data.credit_vasooli : '';
-            const descVal = data.description ? String(data.description) : '';
-            const custName = customerMap[searchIdKey] || data.customer_name || '';
+        const searchIdVal = data.search_id ? String(data.search_id).trim() : '';
+        const searchIdKey = searchIdVal.toLowerCase();
 
-            tr.innerHTML = `
-                <td class="text-center text-bold serial-no">${srNo}</td>
-                <td class="text-center">
-                    <input type="text" class="sheet-input input-search-id" value="${searchIdVal}" placeholder="Search ID" oninput="onSearchIdInput(this)" onkeydown="handleEnterNavigation(event, 'search_id')">
-                </td>
-                <td>
-                    <input type="text" class="sheet-input input-cust-name" value="${custName}" placeholder="Auto Name" readonly style="background-color: #f8f9fa; font-weight: bold; color: #000;">
-                </td>
-                <td>
-                    <input type="text" class="sheet-input input-description" value="${descVal}" placeholder="Detail..." onkeydown="handleEnterNavigation(event, 'desc')">
-                </td>
-                <td>
-                    <input type="number" class="sheet-input input-debit" value="${debitVal}" placeholder="0" oninput="recalculateTotals()" onkeydown="handleEnterNavigation(event, 'debit')">
-                </td>
-                <td>
-                    <input type="number" class="sheet-input input-credit" value="${creditVal}" placeholder="0" oninput="recalculateTotals()" onkeydown="handleEnterNavigation(event, 'credit')">
-                </td>
-            `;
+        if (data.id) tr.setAttribute('data-db-id', data.id);
+        if (data.created_at) tr.setAttribute('data-created-at', data.created_at);
+        tr.setAttribute('data-search-id', searchIdKey);
 
-            tbody.appendChild(tr);
+        const debitVal = (data.debit_udhaar !== undefined && data.debit_udhaar !== null && parseFloat(data.debit_udhaar) !== 0) ? data.debit_udhaar : '';
+        const creditVal = (data.credit_vasooli !== undefined && data.credit_vasooli !== null && parseFloat(data.credit_vasooli) !== 0) ? data.credit_vasooli : '';
+        const descVal = data.description ? String(data.description) : '';
+        const custName = customerMap[searchIdKey] || data.customer_name || '';
 
-            if (shouldFocus) {
-                const searchInput = tr.querySelector('.input-search-id');
-                if (searchInput) searchInput.focus();
+        tr.innerHTML = `
+            <td class="text-center text-bold serial-no">${srNo}</td>
+            <td class="text-center">
+                <input type="text" class="sheet-input input-search-id" value="${searchIdVal}" placeholder="Search ID" oninput="onSearchIdInput(this)" onkeydown="handleEnterNavigation(event, 'search_id')">
+            </td>
+            <td>
+                <input type="text" class="sheet-input input-cust-name" value="${custName}" placeholder="Auto Name" readonly style="background-color: #f8f9fa; font-weight: bold; color: #000;">
+            </td>
+            <td>
+                <input type="text" class="sheet-input input-description" value="${descVal}" placeholder="Detail..." onkeydown="handleEnterNavigation(event, 'desc')">
+            </td>
+            <td>
+                <input type="number" class="sheet-input input-debit" value="${debitVal}" placeholder="0" oninput="recalculateTotals()" onkeydown="handleEnterNavigation(event, 'debit')">
+            </td>
+            <td>
+                <input type="number" class="sheet-input input-credit" value="${creditVal}" placeholder="0" oninput="recalculateTotals()" onkeydown="handleEnterNavigation(event, 'credit')">
+            </td>
+        `;
+
+        tbody.appendChild(tr);
+
+        if (shouldFocus) {
+            const searchInput = tr.querySelector('.input-search-id');
+            if (searchInput) searchInput.focus();
+        }
+    }
+
+    function addNewEmptyRow(focusNew = true) {
+        const tbody = document.getElementById('sheetTableBody');
+        const srNo = tbody.querySelectorAll('tr').length + 1;
+        appendRowToTable({}, srNo, focusNew);
+    }
+
+    function onSearchIdInput(inputElem) {
+        const tr = inputElem.closest('tr');
+        const searchVal = String(inputElem.value).trim().toLowerCase();
+        const nameInput = tr.querySelector('.input-cust-name');
+
+        tr.setAttribute('data-search-id', searchVal);
+
+        if (searchVal === '') {
+            nameInput.value = '';
+            nameInput.style.color = '#000';
+        } else if (customerMap[searchVal]) {
+            nameInput.value = customerMap[searchVal];
+            nameInput.style.color = '#000';
+        } else {
+            nameInput.value = 'Not Found';
+            nameInput.style.color = '#c0392b';
+        }
+    }
+
+    function isRowFilled(tr) {
+        const searchId = tr.querySelector('.input-search-id')?.value.trim() || '';
+        const desc = tr.querySelector('.input-description')?.value.trim() || '';
+        const debit = parseFloat(tr.querySelector('.input-debit')?.value) || 0;
+        const credit = parseFloat(tr.querySelector('.input-credit')?.value) || 0;
+
+        return searchId !== '' || desc !== '' || debit > 0 || credit > 0;
+    }
+
+    function handleEnterNavigation(event, fieldType) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            const tr = event.target.closest('tr');
+
+            if (fieldType === 'search_id') {
+                tr.querySelector('.input-description').focus();
+            } else if (fieldType === 'desc') {
+                tr.querySelector('.input-debit').focus();
+            } else if (fieldType === 'debit') {
+                tr.querySelector('.input-credit').focus();
+            } else if (fieldType === 'credit') {
+                if (!isRowFilled(tr)) return;
+
+                const nextTr = tr.nextElementSibling;
+                if (nextTr) {
+                    nextTr.querySelector('.input-search-id').focus();
+                } else {
+                    addNewEmptyRow(true);
+                }
             }
         }
+    }
 
-        function addNewEmptyRow(focusNew = true) {
-            const tbody = document.getElementById('sheetTableBody');
-            const srNo = tbody.querySelectorAll('tr').length + 1;
-            appendRowToTable({}, srNo, focusNew);
-        }
+    // --- FILTER FUNCTIONALITY FOR TABLE ---
+    function filterSheetTable() {
+        const query = document.getElementById('sheet_search_filter').value.trim().toLowerCase();
+        const rows = document.querySelectorAll('#sheetTableBody tr');
 
-        function onSearchIdInput(inputElem) {
-            const tr = inputElem.closest('tr');
-            const searchVal = String(inputElem.value).trim().toLowerCase();
-            const nameInput = tr.querySelector('.input-cust-name');
+        rows.forEach(tr => {
+            const searchId = tr.querySelector('.input-search-id')?.value.toLowerCase() || '';
+            const custName = tr.querySelector('.input-cust-name')?.value.toLowerCase() || '';
 
-            tr.setAttribute('data-search-id', searchVal);
-
-            if (searchVal === '') {
-                nameInput.value = '';
-                nameInput.style.color = '#000';
-            } else if (customerMap[searchVal]) {
-                nameInput.value = customerMap[searchVal];
-                nameInput.style.color = '#000';
+            if (searchId.includes(query) || custName.includes(query)) {
+                tr.style.display = '';
             } else {
-                nameInput.value = 'Not Found';
-                nameInput.style.color = '#c0392b';
+                tr.style.display = 'none';
             }
-        }
+        });
+    }
 
-        function isRowFilled(tr) {
-            const searchId = tr.querySelector('.input-search-id')?.value.trim() || '';
-            const desc = tr.querySelector('.input-description')?.value.trim() || '';
-            const debit = parseFloat(tr.querySelector('.input-debit')?.value) || 0;
-            const credit = parseFloat(tr.querySelector('.input-credit')?.value) || 0;
+    function recalculateTotals() {
+        let grandDebit = globalOpeningDebit;
+        let grandCredit = globalOpeningCredit;
 
-            return searchId !== '' || desc !== '' || debit > 0 || credit > 0;
-        }
+        const tbody = document.getElementById('sheetTableBody');
+        const rows = tbody.querySelectorAll('tr');
 
-        function handleEnterNavigation(event, fieldType) {
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                const tr = event.target.closest('tr');
+        rows.forEach(tr => {
+            const debitInput = tr.querySelector('.input-debit');
+            const creditInput = tr.querySelector('.input-credit');
 
-                if (fieldType === 'search_id') {
-                    tr.querySelector('.input-description').focus();
-                } else if (fieldType === 'desc') {
-                    tr.querySelector('.input-debit').focus();
-                } else if (fieldType === 'debit') {
-                    tr.querySelector('.input-credit').focus();
-                } else if (fieldType === 'credit') {
-                    if (!isRowFilled(tr)) return;
+            if (debitInput && creditInput) {
+                const debit = parseFloat(debitInput.value) || 0;
+                const credit = parseFloat(creditInput.value) || 0;
 
-                    const nextTr = tr.nextElementSibling;
-                    if (nextTr) {
-                        nextTr.querySelector('.input-search-id').focus();
-                    } else {
-                        addNewEmptyRow(true);
-                    }
-                }
+                grandDebit += debit;
+                grandCredit += credit;
             }
+        });
+
+        const lblDebit = document.getElementById('lbl_total_debit');
+        const lblCredit = document.getElementById('lbl_total_credit');
+        if (lblDebit) lblDebit.textContent = grandDebit.toLocaleString();
+        if (lblCredit) lblCredit.textContent = grandCredit.toLocaleString();
+
+        const dayNet = grandCredit - grandDebit;
+        const lblOpening = document.getElementById('lbl_opening_balance');
+        const openingVal = lblOpening ? (parseFloat(lblOpening.getAttribute('data-value')) || 0) : 0;
+        const finalClosing = openingVal + dayNet;
+
+        const lblNet = document.getElementById('lbl_net_income');
+        if (lblNet) {
+            lblNet.textContent = finalClosing.toLocaleString() + " PKR";
+        }
+    }
+
+    function updateOpeningAndClosingUI(opening, closing) {
+        const lblOpening = document.getElementById('lbl_opening_balance');
+        if (lblOpening) {
+            lblOpening.setAttribute('data-value', opening);
+            lblOpening.textContent = opening.toLocaleString() + " PKR";
         }
 
-        function recalculateTotals() {
-            let grandDebit = globalOpeningDebit;
-            let grandCredit = globalOpeningCredit;
+        const lblNet = document.getElementById('lbl_net_income');
+        if (lblNet) {
+            lblNet.textContent = closing.toLocaleString() + " PKR";
+        }
+    }
 
-            const tbody = document.getElementById('sheetTableBody');
-            const rows = tbody.querySelectorAll('tr');
+    // --- ADD NEW CUSTOMER MASTER (WITH DUPLICATE ID CHECK) ---
+    async function addNewCustomer() {
+        const name = document.getElementById('new_cust_name').value.trim();
+        const searchId = document.getElementById('new_cust_id').value.trim();
+        const userId = localStorage.getItem('userId');
 
-            rows.forEach(tr => {
-                const debitInput = tr.querySelector('.input-debit');
-                const creditInput = tr.querySelector('.input-credit');
+        if (!name || !searchId) {
+            alert("Customer Name aur Search ID dono zaroori hain!");
+            return;
+        }
 
-                if (debitInput && creditInput) {
-                    const debit = parseFloat(debitInput.value) || 0;
-                    const credit = parseFloat(creditInput.value) || 0;
+        const cleanId = searchId.toLowerCase();
 
-                    grandDebit += debit;
-                    grandCredit += credit;
-                }
+        // Client side check to prevent duplicate master customer ID
+        if (customerMap[cleanId]) {
+            alert(`⚠️ Duplicate Error: Search ID '${searchId}' pehle se '${customerMap[cleanId]}' ke naam par registered hai! Sahi ya unique ID enter karein.`);
+            return;
+        }
+
+        try {
+            const res = await fetch(`${API_URL}/customer`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ customer_name: name, search_id: searchId, userId: userId })
             });
 
-            const lblDebit = document.getElementById('lbl_total_debit');
-            const lblCredit = document.getElementById('lbl_total_credit');
-            if (lblDebit) lblDebit.textContent = grandDebit.toLocaleString();
-            if (lblCredit) lblCredit.textContent = grandCredit.toLocaleString();
-
-            const dayNet = grandCredit - grandDebit;
-            const lblOpening = document.getElementById('lbl_opening_balance');
-            const openingVal = lblOpening ? (parseFloat(lblOpening.getAttribute('data-value')) || 0) : 0;
-            const finalClosing = openingVal + dayNet;
-
-            const lblNet = document.getElementById('lbl_net_income');
-            if (lblNet) {
-                lblNet.textContent = finalClosing.toLocaleString() + " PKR";
+            const result = await res.json();
+            if (result.status === "Success" || res.ok) {
+                document.getElementById('new_cust_name').value = "";
+                document.getElementById('new_cust_id').value = "";
+                customerMap[cleanId] = name;
+                alert("🎉 Customer Master List mein add ho gaya!");
+            } else {
+                alert("Error: " + (result.message || result.db_error));
             }
+        } catch (err) {
+            console.error("Customer add error:", err);
         }
+    }
 
-        function updateOpeningAndClosingUI(opening, closing) {
-            const lblOpening = document.getElementById('lbl_opening_balance');
-            if (lblOpening) {
-                lblOpening.setAttribute('data-value', opening);
-                lblOpening.textContent = opening.toLocaleString() + " PKR";
-            }
+    // --- SAVE DAILY SHEET ENTRIES ---
+    async function saveAllSheetEntries() {
+        const currentDate = document.getElementById('working_date').value;
+        const tbody = document.getElementById('sheetTableBody');
+        const rows = tbody.querySelectorAll('tr');
+        const userId = localStorage.getItem('userId');
 
-            const lblNet = document.getElementById('lbl_net_income');
-            if (lblNet) {
-                lblNet.textContent = closing.toLocaleString() + " PKR";
-            }
-        }
+        if (rows.length === 0) return;
 
-        async function addNewCustomer() {
-            const name = document.getElementById('new_cust_name').value.trim();
-            const searchId = document.getElementById('new_cust_id').value.trim();
-            const userId = localStorage.getItem('userId');
+        const entries = [];
 
-            if (!name || !searchId) {
-                alert("Customer Name aur Search ID dono zaroori hain!");
-                return;
-            }
+        rows.forEach(tr => {
+            const searchIdInput = tr.querySelector('.input-search-id');
+            const custNameInput = tr.querySelector('.input-cust-name');
+            const descInput = tr.querySelector('.input-description');
+            const debitInput = tr.querySelector('.input-debit');
+            const creditInput = tr.querySelector('.input-credit');
 
-            try {
-                const res = await fetch(`${API_URL}/customer`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ customer_name: name, search_id: searchId, userId: userId })
-                });
+            const searchId = searchIdInput ? searchIdInput.value.trim() : '';
+            const custName = custNameInput ? custNameInput.value.trim() : '';
+            const descVal = descInput ? descInput.value.trim() : '';
+            const debitVal = parseFloat(debitInput ? debitInput.value : 0) || 0;
+            const creditVal = parseFloat(creditInput ? creditInput.value : 0) || 0;
 
-                const result = await res.json();
-                if (result.status === "Success" || res.ok) {
-                    document.getElementById('new_cust_name').value = "";
-                    document.getElementById('new_cust_id').value = "";
-                    customerMap[searchId.toLowerCase()] = name;
-                    alert("Customer Master List mein add ho gaya!");
-                } else {
-                    alert("Error: " + (result.message || result.db_error));
-                }
-            } catch (err) {
-                console.error("Customer add error:", err);
-            }
-        }
-
-        async function saveAllSheetEntries() {
-            const currentDate = document.getElementById('working_date').value;
-            const tbody = document.getElementById('sheetTableBody');
-            const rows = tbody.querySelectorAll('tr');
-            const userId = localStorage.getItem('userId');
-
-            if (rows.length === 0) return;
-
-            const entries = [];
-
-            rows.forEach(tr => {
-                const searchIdInput = tr.querySelector('.input-search-id');
-                const custNameInput = tr.querySelector('.input-cust-name');
-                const descInput = tr.querySelector('.input-description');
-                const debitInput = tr.querySelector('.input-debit');
-                const creditInput = tr.querySelector('.input-credit');
-
-                const searchId = searchIdInput ? searchIdInput.value.trim() : '';
-                const custName = custNameInput ? custNameInput.value.trim() : '';
-                const descVal = descInput ? descInput.value.trim() : '';
-                const debitVal = parseFloat(debitInput ? debitInput.value : 0) || 0;
-                const creditVal = parseFloat(creditInput ? creditInput.value : 0) || 0;
-
-                if (searchId !== '' || descVal !== '' || debitVal > 0 || creditVal > 0) {
-                    entries.push({
-                        search_id: searchId,
-                        customer_name: custName,
-                        description: descVal,
-                        debit_udhaar: debitVal,
-                        credit_vasooli: creditVal,
-                        debit: debitVal,
-                        credit: creditVal,
-                        sheet_date: currentDate,
-                        userId: userId
-                    });
-                }
-            });
-
-            try {
-                const res = await fetch(`${API_URL}/save`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ entries: entries, sheet_date: currentDate, userId: userId })
-                });
-
-                const result = await res.json();
-                if (result.status === "Success" || res.ok) {
-                    alert("🎉 Data Save Ho Gaya!");
-                    await loadSheetByDate();
-                } else {
-                    alert("Error: " + (result.message || result.db_error));
-                }
-            } catch (err) {
-                console.error("Saving error:", err);
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', () => {
-            const dateInput = document.getElementById('working_date');
-            if (dateInput) {
-                dateInput.value = getTodayDateString();
-                dateInput.addEventListener('change', () => {
-                    loadSheetByDate();
-                });
-            }
-            loadSheetByDate();
-
-            const logoutBtn = document.getElementById('logoutBtn');
-            if (logoutBtn) {
-                logoutBtn.addEventListener('click', () => {
-                    localStorage.removeItem('userId');
-                    localStorage.removeItem('username');
-                    alert("Aap successfully logout ho chuke hain!");
-                    window.location.href = 'login.html';
+            if (searchId !== '' || descVal !== '' || debitVal > 0 || creditVal > 0) {
+                entries.push({
+                    search_id: searchId,
+                    customer_name: custName,
+                    description: descVal,
+                    debit_udhaar: debitVal,
+                    credit_vasooli: creditVal,
+                    debit: debitVal,
+                    credit: creditVal,
+                    sheet_date: currentDate,
+                    userId: userId
                 });
             }
         });
+
+        try {
+            const res = await fetch(`${API_URL}/save`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ entries: entries, sheet_date: currentDate, userId: userId })
+            });
+
+            const result = await res.json();
+            if (result.status === "Success" || res.ok) {
+                alert("🎉 Data Save Ho Gaya!");
+                await loadSheetByDate();
+            } else {
+                alert("Error: " + (result.message || result.db_error));
+            }
+        } catch (err) {
+            console.error("Saving error:", err);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const dateInput = document.getElementById('working_date');
+        if (dateInput) {
+            dateInput.value = getTodayDateString();
+            dateInput.addEventListener('change', () => {
+                loadSheetByDate();
+            });
+        }
+        loadSheetByDate();
+
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', () => {
+                localStorage.removeItem('userId');
+                localStorage.removeItem('username');
+                alert("Aap successfully logout ho chuke hain!");
+                window.location.href = 'login.html';
+            });
+        }
+    });
 </script>
 </body>
 

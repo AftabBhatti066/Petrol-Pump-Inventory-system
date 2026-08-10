@@ -69,11 +69,15 @@ exports.addCustomer = async (req, res) => {
     }
 };
 
-// 3. Bulk Batch Save Daily Sheet Entries (FIXED FOR PREVIOUS & CURRENT DATES)
+// 3. Bulk Batch Save Daily Sheet Entries (UPDATED & SAFE FOR MULTIPLE SAME-SEARCH-ID ENTRIES)
 exports.saveDailySheetEntry = async (req, res) => {
-    const connection = await db.getConnection(); // Use Database Transaction
+    const connection = await db.getConnection();
     try {
         await connection.beginTransaction();
+
+        // 🔍 Debug Connection Check (Terminal mein verify karein ke konsa DB hit ho raha hai)
+        const [dbCheck] = await connection.query("SELECT DATABASE() as current_db;");
+        console.log("👉 NODE IS CONNECTED TO DATABASE:", dbCheck[0].current_db);
 
         const rawEntries = req.body.entries ? req.body.entries : [req.body];
         const mainUserId = req.body.userId; 
@@ -94,8 +98,8 @@ exports.saveDailySheetEntry = async (req, res) => {
         `;
         await connection.query(deleteQuery, [mainUserId, formattedSheetDate]);
 
-        // Step 2: Customer Master Upsert & Valid Entries Collect Karo
-        const valuesToInsert = [];
+        // Step 2: Entries filter aur batch prepare karo
+        const insertValues = [];
 
         for (const item of rawEntries) {
             const { search_id, debit_udhaar, credit_vasooli, debit, credit, description, customer_name, userId } = item;
@@ -109,19 +113,23 @@ exports.saveDailySheetEntry = async (req, res) => {
             const creditVal = parseFloat(credit_vasooli !== undefined ? credit_vasooli : credit) || 0;
             const total_balance = creditVal - debitVal;
 
-            // Master Customer Auto-add / Update
+            // Customer Master Add (Safe Check)
             if (customer_name && String(customer_name).trim() !== '') {
-                const customerUpsert = `
-                    INSERT INTO daily_customers (customer_name, search_id, user_id) 
-                    VALUES (?, ?, ?)
-                    ON DUPLICATE KEY UPDATE customer_name = VALUES(customer_name)
-                `;
-                await connection.query(customerUpsert, [String(customer_name).trim(), cleanSearchId, currentUserId]);
+                try {
+                    const customerUpsert = `
+                        INSERT INTO daily_customers (customer_name, search_id, user_id) 
+                        VALUES (?, ?, ?)
+                        ON DUPLICATE KEY UPDATE customer_name = VALUES(customer_name)
+                    `;
+                    await connection.query(customerUpsert, [String(customer_name).trim(), cleanSearchId, currentUserId]);
+                } catch (custErr) {
+                    console.log("Customer upsert skipped:", custErr.message);
+                }
             }
 
-            // Sirf wahi entry collect karo jo empty na ho
+            // Valid records collection
             if (cleanSearchId !== '' && (debitVal > 0 || creditVal > 0 || cleanDesc !== '')) {
-                valuesToInsert.push([
+                insertValues.push([
                     cleanSearchId,
                     debitVal,
                     creditVal,
@@ -133,31 +141,35 @@ exports.saveDailySheetEntry = async (req, res) => {
             }
         }
 
-        // Step 3: Nayi entries selected date par Bulk Insert karo
-        if (valuesToInsert.length > 0) {
-            const insertQuery = `
+        // Step 3: Single Bulk Batch Insert
+        if (insertValues.length > 0) {
+            const batchInsertQuery = `
                 INSERT INTO daily_sheets 
                 (search_id, debit_udhaar, credit_vasooli, description, total_balance, sheet_date, user_id)
                 VALUES ?
             `;
-            await connection.query(insertQuery, [valuesToInsert]);
+            await connection.query(batchInsertQuery, [insertValues]);
         }
 
         await connection.commit();
         connection.release();
 
-        res.json({
+        return res.json({
             status: "Success",
             message: `${formattedSheetDate} ka data kamyabi se save ho gaya!`
         });
+
     } catch (error) {
         await connection.rollback();
         connection.release();
-        console.error("Save Sheet Entry Error:", error);
-        res.status(500).json({ status: "Error", db_error: error.message });
+        console.error("Save Sheet Entry Error Details:", error);
+        return res.status(500).json({ 
+            status: "Error", 
+            message: error.sqlMessage || error.message || "Data save karne mein error aaya hai",
+            db_error: error.message 
+        });
     }
 };
-
 // 4. Fetch Daily Sheet By Date (WITH PREVIOUS CUMULATIVE DEBIT & CREDIT CARRY FORWARD)
 exports.getDailySheetByDate = async (req, res) => {
     try {
