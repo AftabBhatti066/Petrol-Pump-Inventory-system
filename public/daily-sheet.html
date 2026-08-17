@@ -219,7 +219,11 @@
         const searchIdVal = data.search_id ? String(data.search_id).trim() : '';
         const searchIdKey = searchIdVal.toLowerCase();
 
-        if (data.id) tr.setAttribute('data-db-id', data.id);
+        // Database ID ko set karna update operation ke liye lazmi hai
+        if (data.id) {
+            tr.setAttribute('data-id', data.id);
+            tr.setAttribute('data-db-id', data.id);
+        }
         if (data.created_at) tr.setAttribute('data-created-at', data.created_at);
         tr.setAttribute('data-search-id', searchIdKey);
 
@@ -425,12 +429,15 @@
         const tbody = document.getElementById('sheetTableBody');
         const rows = tbody.querySelectorAll('tr');
         const userId = localStorage.getItem('userId');
+        const saveBtn = document.querySelector('.btn-save-sheet');
 
         if (rows.length === 0) return;
 
         const entries = [];
 
         rows.forEach(tr => {
+            const rowId = tr.getAttribute('data-id') || tr.getAttribute('data-db-id') || null;
+
             const searchIdInput = tr.querySelector('.input-search-id');
             const custNameInput = tr.querySelector('.input-cust-name');
             const descInput = tr.querySelector('.input-description');
@@ -444,7 +451,7 @@
             const creditVal = parseFloat(creditInput ? creditInput.value : 0) || 0;
 
             if (searchId !== '' || descVal !== '' || debitVal > 0 || creditVal > 0) {
-                entries.push({
+                const entryPayload = {
                     search_id: searchId,
                     customer_name: custName,
                     description: descVal,
@@ -454,11 +461,29 @@
                     credit: creditVal,
                     sheet_date: currentDate,
                     userId: userId
-                });
+                };
+
+                // ID include karein agar exist karti hai taakay duplicate insertion na ho
+                if (rowId) {
+                    entryPayload.id = parseInt(rowId, 10);
+                }
+
+                entries.push(entryPayload);
             }
         });
 
+        if (entries.length === 0) {
+            alert("⚠️ Save karne ke liye koi valid entry nahi mili!");
+            return;
+        }
+
         try {
+            // Button disable karein taakay double-click duplication na ho
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.innerText = "⏳ Saving...";
+            }
+
             const res = await fetch(`${API_URL}/save`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -474,6 +499,12 @@
             }
         } catch (err) {
             console.error("Saving error:", err);
+            alert("Server communication error while saving!");
+        } finally {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerText = "💾 Save Daily Sheet";
+            }
         }
     }
 

@@ -20,14 +20,14 @@ exports.getAllReadings = async (req, res) => {
             INNER JOIN (
                 SELECT nozzle_name, MAX(id) as max_id 
                 FROM meter_readings 
-                WHERE user_id = ? 
+                WHERE user_id = $1 
                 GROUP BY nozzle_name
             ) m2 ON m1.id = m2.max_id
-            WHERE m1.user_id = ?
+            WHERE m1.user_id = $2
         `;
 
-        const [rows] = await db.query(query, [userId, userId]);
-        res.json({ status: "Success", data: rows });
+        const result = await db.query(query, [userId, userId]);
+        res.json({ status: "Success", data: result.rows });
     } catch (error) {
         console.error("Get All Readings Error:", error);
         res.status(500).json({ status: "Error", message: error.message });
@@ -42,16 +42,19 @@ exports.getTankStock = async (req, res) => {
             return res.status(400).json({ status: "Error", message: "User ID missing!" });
         }
 
-        let [rows] = await db.query('SELECT fuel_type, current_stock FROM fuel_stocks WHERE user_id = ?', [userId]);
+        let result = await db.query('SELECT fuel_type, current_stock FROM fuel_stocks WHERE user_id = $1', [userId]);
+        let rows = result.rows;
 
-        // 💡 CRASH RECOVERY: Agar naye user ka fuel stock entry nahi hai, toh runtime par create karein
+        // CRASH RECOVERY: Agar naye user ka fuel stock entry nahi hai
         if (rows.length === 0) {
-            await db.query('INSERT IGNORE INTO fuel_stocks (fuel_type, current_stock, user_id) VALUES (?, 0.00, ?), (?, 0.00, ?)', 
-                ['Diesel', userId, 'Super', userId]
-            );
-            // Dobara fetch karein taakay frontend khali na jaye
-            const [retryRows] = await db.query('SELECT fuel_type, current_stock FROM fuel_stocks WHERE user_id = ?', [userId]);
-            rows = retryRows;
+            await db.query(`
+                INSERT INTO fuel_stocks (fuel_type, current_stock, user_id) 
+                VALUES ('Diesel', 0.00, $1), ('Super', 0.00, $2)
+                ON CONFLICT (fuel_type, user_id) DO NOTHING
+            `, [userId, userId]);
+
+            const retryResult = await db.query('SELECT fuel_type, current_stock FROM fuel_stocks WHERE user_id = $1', [userId]);
+            rows = retryResult.rows;
         }
 
         res.json({ status: "Success", data: rows });
@@ -69,16 +72,20 @@ exports.getLubricantStock = async (req, res) => {
             return res.status(400).json({ status: "Error", message: "User ID missing!" });
         }
 
-        let [rows] = await db.query('SELECT item_name, current_stock FROM lubricant_stocks WHERE user_id = ?', [userId]);
+        let result = await db.query('SELECT item_name, current_stock FROM lubricant_stocks WHERE user_id = $1', [userId]);
+        let rows = result.rows;
         
-        // 💡 CRASH RECOVERY: Agar bilkul naya user hai aur lubricants khali hain, toh automatic 9 rows bana dein
+        // CRASH RECOVERY: Automatic lubricant creation for new users
         if (rows.length === 0) {
             for (const item of DEFAULT_LUBRICANTS) {
-                await db.query('INSERT IGNORE INTO lubricant_stocks (item_name, current_stock, user_id) VALUES (?, 0, ?)', [item, userId]);
+                await db.query(`
+                    INSERT INTO lubricant_stocks (item_name, current_stock, user_id) 
+                    VALUES ($1, 0, $2)
+                    ON CONFLICT (item_name, user_id) DO NOTHING
+                `, [item, userId]);
             }
-            // Populate rows array again after generation
-            const [retryRows] = await db.query('SELECT item_name, current_stock FROM lubricant_stocks WHERE user_id = ?', [userId]);
-            rows = retryRows;
+            const retryResult = await db.query('SELECT item_name, current_stock FROM lubricant_stocks WHERE user_id = $1', [userId]);
+            rows = retryResult.rows;
         }
 
         res.json({ status: "Success", data: rows });
@@ -97,26 +104,31 @@ exports.addReading = async (req, res) => {
             return res.status(400).json({ status: "Error", message: "Missing required fields!" });
         }
 
-        // 1. Pehle is nozzle ki purani closing reading nikaalwain
-        const [lastReading] = await db.query(
-            'SELECT closing_reading FROM meter_readings WHERE nozzle_name = ? AND user_id = ? ORDER BY id DESC LIMIT 1',
+        // 1. Purani closing reading fetch karein
+        const lastResult = await db.query(
+            'SELECT closing_reading FROM meter_readings WHERE nozzle_name = $1 AND user_id = $2 ORDER BY id DESC LIMIT 1',
             [nozzle_name, userId]
         );
 
-        const opening_reading = lastReading.length > 0 ? parseFloat(lastReading[0].closing_reading) : 0.00;
+        const opening_reading = lastResult.rows.length > 0 ? parseFloat(lastResult.rows[0].closing_reading) : 0.00;
         const liters_sold = Math.max(0, parseFloat(closing_reading) - opening_reading);
 
         // 2. Insert new reading record
         const insertQuery = `
             INSERT INTO meter_readings (nozzle_name, fuel_type, opening_reading, closing_reading, liters_sold, reading_date, user_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
         `;
         await db.query(insertQuery, [nozzle_name, fuel_type, opening_reading, closing_reading, liters_sold, reading_date, userId]);
 
-        // 3. Fuel Tank Stock safe check update (Pehle ensure karein row exist karti ho)
-        await db.query('INSERT IGNORE INTO fuel_stocks (fuel_type, current_stock, user_id) VALUES (?, 0.00, ?)', [fuel_type, userId]);
+        // 3. Fuel Tank Stock safe check update
+        await db.query(`
+            INSERT INTO fuel_stocks (fuel_type, current_stock, user_id) 
+            VALUES ($1, 0.00, $2)
+            ON CONFLICT (fuel_type, user_id) DO NOTHING
+        `, [fuel_type, userId]);
+
         await db.query(
-            'UPDATE fuel_stocks SET current_stock = current_stock - ? WHERE LOWER(TRIM(fuel_type)) = LOWER(TRIM(?)) AND user_id = ?',
+            'UPDATE fuel_stocks SET current_stock = current_stock - $1 WHERE LOWER(TRIM(fuel_type)) = LOWER(TRIM($2)) AND user_id = $3',
             [liters_sold, fuel_type, userId]
         );
 
@@ -137,9 +149,13 @@ exports.updateReceipt = async (req, res) => {
         }
 
         // Ensure target row exists before update trigger
-        await db.query('INSERT IGNORE INTO fuel_stocks (fuel_type, current_stock, user_id) VALUES (?, 0.00, ?)', [fuel_type, userId]);
+        await db.query(`
+            INSERT INTO fuel_stocks (fuel_type, current_stock, user_id) 
+            VALUES ($1, 0.00, $2)
+            ON CONFLICT (fuel_type, user_id) DO NOTHING
+        `, [fuel_type, userId]);
 
-        const query = 'UPDATE fuel_stocks SET current_stock = current_stock + ? WHERE LOWER(TRIM(fuel_type)) = LOWER(TRIM(?)) AND user_id = ?';
+        const query = 'UPDATE fuel_stocks SET current_stock = current_stock + $1 WHERE LOWER(TRIM(fuel_type)) = LOWER(TRIM($2)) AND user_id = $3';
         await db.query(query, [parseFloat(receipt_liters), fuel_type, userId]);
 
         res.json({ status: "Success", message: "Tank stock added successfully!" });
@@ -162,11 +178,15 @@ exports.updateLubricants = async (req, res) => {
         if (lubricant_receipts && lubricant_receipts.length > 0) {
             for (const item of lubricant_receipts) {
                 if (item.qty > 0) {
-                    // Safe check: Ensure product exists for user
-                    await db.query('INSERT IGNORE INTO lubricant_stocks (item_name, current_stock, user_id) VALUES (?, 0, ?)', [item.name, userId]);
+                    await db.query(`
+                        INSERT INTO lubricant_stocks (item_name, current_stock, user_id) 
+                        VALUES ($1, 0, $2)
+                        ON CONFLICT (item_name, user_id) DO NOTHING
+                    `, [item.name, userId]);
+
                     await db.query(
-                        'UPDATE lubricant_stocks SET current_stock = current_stock + ? WHERE item_name = ? AND user_id = ?',
-                        [parseInt(item.qty), item.name, userId]
+                        'UPDATE lubricant_stocks SET current_stock = current_stock + $1 WHERE item_name = $2 AND user_id = $3',
+                        [parseInt(item.qty, 10), item.name, userId]
                     );
                 }
             }
@@ -176,11 +196,15 @@ exports.updateLubricants = async (req, res) => {
         if (lubricant_sales && lubricant_sales.length > 0) {
             for (const item of lubricant_sales) {
                 if (item.qty > 0) {
-                    // Safe check: Ensure product exists for user
-                    await db.query('INSERT IGNORE INTO lubricant_stocks (item_name, current_stock, user_id) VALUES (?, 0, ?)', [item.name, userId]);
+                    await db.query(`
+                        INSERT INTO lubricant_stocks (item_name, current_stock, user_id) 
+                        VALUES ($1, 0, $2)
+                        ON CONFLICT (item_name, user_id) DO NOTHING
+                    `, [item.name, userId]);
+
                     await db.query(
-                        'UPDATE lubricant_stocks SET current_stock = current_stock - ? WHERE item_name = ? AND user_id = ?',
-                        [parseInt(item.qty), item.name, userId]
+                        'UPDATE lubricant_stocks SET current_stock = current_stock - $1 WHERE item_name = $2 AND user_id = $3',
+                        [parseInt(item.qty, 10), item.name, userId]
                     );
                 }
             }

@@ -15,17 +15,24 @@ exports.registerVehicle = async (req, res) => {
 
         const cleanGariNumber = gari_number.trim().toLowerCase();
 
-        const [existing] = await db.query(
-            'SELECT id FROM vehicles WHERE LOWER(gari_number) = ? AND user_id = ?',
-            [cleanGariNumber, userId]
-        );
+        const existingQuery = 'SELECT id FROM vehicles WHERE LOWER(gari_number) = $1 AND user_id = $2';
+        const { rows: existing } = await db.query(existingQuery, [cleanGariNumber, userId]);
 
         if (existing.length > 0) {
             return res.status(400).json({ status: "Error", message: "Yeh vehicle aap ke paas pehle se registered hai!" });
         }
 
-        const query = `INSERT INTO vehicles (gari_number, owner_name, contact_number, address, user_id) VALUES (?, ?, ?, ?, ?)`;
-        await db.query(query, [gari_number.trim(), owner_name.trim(), contact_number ? contact_number.trim() : '', address ? address.trim() : '', userId]);
+        const query = `
+            INSERT INTO vehicles (gari_number, owner_name, contact_number, address, user_id) 
+            VALUES ($1, $2, $3, $4, $5)
+        `;
+        await db.query(query, [
+            gari_number.trim(), 
+            owner_name.trim(), 
+            contact_number ? contact_number.trim() : '', 
+            address ? address.trim() : '', 
+            userId
+        ]);
 
         res.json({
             status: "Success",
@@ -48,10 +55,8 @@ exports.logCreditFuel = async (req, res) => {
 
         const cleanGari = gari_number.trim().toLowerCase();
 
-        const [isRegistered] = await db.query(
-            'SELECT id FROM vehicles WHERE LOWER(gari_number) = ? AND user_id = ?',
-            [cleanGari, userId]
-        );
+        const regQuery = 'SELECT id FROM vehicles WHERE LOWER(gari_number) = $1 AND user_id = $2';
+        const { rows: isRegistered } = await db.query(regQuery, [cleanGari, userId]);
 
         if (isRegistered.length === 0) {
             return res.status(400).json({ 
@@ -60,13 +65,14 @@ exports.logCreditFuel = async (req, res) => {
             });
         }
 
-        const [fuelRateResult] = await db.query(
-            `SELECT rate_per_litre FROM fuel_rates 
-             WHERE (LOWER(product_name) = ? OR LOWER(product_type) = ?) 
-             AND (user_id = ? OR user_id IS NULL) 
-             ORDER BY id DESC LIMIT 1`,
-            [product.trim().toLowerCase(), product.trim().toLowerCase(), userId]
-        );
+        const cleanProduct = product.trim().toLowerCase();
+        const rateQuery = `
+            SELECT rate_per_litre FROM fuel_rates 
+            WHERE (LOWER(product_name) = $1 OR LOWER(product_type) = $2) 
+              AND (user_id = $3 OR user_id IS NULL) 
+            ORDER BY id DESC LIMIT 1
+        `;
+        const { rows: fuelRateResult } = await db.query(rateQuery, [cleanProduct, cleanProduct, userId]);
         
         if (!fuelRateResult || fuelRateResult.length === 0) {
             return res.status(400).json({
@@ -81,10 +87,19 @@ exports.logCreditFuel = async (req, res) => {
 
         const insertQuery = `
             INSERT INTO credit_ledgers (gari_number, driver_name, product, litres, rate_pkr, total_amount, payment_type, entry_date, user_id) 
-            VALUES (?, ?, ?, ?, ?, ?, 'CREDIT', ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6, 'CREDIT', $7, $8)
         `;
 
-        await db.query(insertQuery, [gari_number.trim(), driver_name ? driver_name.trim() : '', product.trim(), parsedLitres, current_rate, total_amount, entry_date, userId]);
+        await db.query(insertQuery, [
+            gari_number.trim(), 
+            driver_name ? driver_name.trim() : '', 
+            product.trim(), 
+            parsedLitres, 
+            current_rate, 
+            total_amount, 
+            entry_date, 
+            userId
+        ]);
 
         res.json({
             status: "Success",
@@ -114,10 +129,8 @@ exports.logVehicleVasooli = async (req, res) => {
 
         const cleanGari = gari_number.trim().toLowerCase();
 
-        const [isRegistered] = await db.query(
-            'SELECT id FROM vehicles WHERE LOWER(gari_number) = ? AND user_id = ?',
-            [cleanGari, userId]
-        );
+        const regQuery = 'SELECT id FROM vehicles WHERE LOWER(gari_number) = $1 AND user_id = $2';
+        const { rows: isRegistered } = await db.query(regQuery, [cleanGari, userId]);
 
         if (isRegistered.length === 0) {
             return res.status(400).json({ 
@@ -130,7 +143,7 @@ exports.logVehicleVasooli = async (req, res) => {
 
         const insertQuery = `
             INSERT INTO credit_ledgers (gari_number, driver_name, product, litres, rate_pkr, total_amount, payment_type, entry_date, user_id) 
-            VALUES (?, ?, 'Cash Vasooli', 0, 0, ?, 'VASOOLI', ?, ?)
+            VALUES ($1, $2, 'Cash Vasooli', 0, 0, $3, 'VASOOLI', $4, $5)
         `;
 
         await db.query(insertQuery, [
@@ -166,7 +179,6 @@ exports.getVehicleLedger = async (req, res) => {
         const trimmedQuery = rawQuery.trim();
         const isAllQuery = !trimmedQuery || trimmedQuery.toUpperCase() === 'ALL';
 
-        // Direct SELECT without multiplying JOINs
         let dailySql = `
             SELECT 
                 ds.id,
@@ -189,30 +201,26 @@ exports.getVehicleLedger = async (req, res) => {
                 ds.description AS description,
                 ds.user_id
             FROM daily_sheets ds
-            WHERE ds.user_id = ?
+            WHERE ds.user_id = $1
         `;
 
         let dailyParams = [userId];
 
-        // Case-insensitive Search ID Match
         if (!isAllQuery) {
-            dailySql += ` AND LOWER(TRIM(ds.search_id)) = LOWER(?)`;
+            dailySql += ` AND LOWER(TRIM(ds.search_id)) = LOWER($2)`;
             dailyParams.push(trimmedQuery);
         }
 
-        const [cashRows] = await db.query(dailySql, dailyParams);
+        const { rows: cashRows } = await db.query(dailySql, dailyParams);
 
-        // Fallback for customer_name if not found
         cashRows.forEach(row => {
             if (!row.driver_name) {
-                row.driver_name = `Customer (${row.search_id.trim()})`;
+                row.driver_name = `Customer (${row.search_id ? row.search_id.trim() : ''})`;
             }
         });
 
-        // Sort entries by Date Descending
         cashRows.sort((a, b) => new Date(b.entry_date) - new Date(a.entry_date));
 
-        // Calculate Totals accurately
         let total_debit = 0;
         let total_credit_vasooli = 0;
 
@@ -249,10 +257,8 @@ exports.deleteCreditEntry = async (req, res) => {
             return res.status(400).json({ status: "Error", message: "User ID validation fail!" });
         }
 
-        const [entryCheck] = await db.query(
-            'SELECT * FROM credit_ledgers WHERE id = ? AND user_id = ?', 
-            [id, userId]
-        );
+        const checkQuery = 'SELECT * FROM credit_ledgers WHERE id = $1 AND user_id = $2';
+        const { rows: entryCheck } = await db.query(checkQuery, [id, userId]);
         
         if (entryCheck.length === 0) {
             return res.status(404).json({
@@ -261,7 +267,7 @@ exports.deleteCreditEntry = async (req, res) => {
             });
         }
 
-        await db.query('DELETE FROM credit_ledgers WHERE id = ? AND user_id = ?', [id, userId]);
+        await db.query('DELETE FROM credit_ledgers WHERE id = $1 AND user_id = $2', [id, userId]);
 
         res.json({
             status: "Success",
@@ -284,8 +290,13 @@ exports.getTrialBalance = async (req, res) => {
         }
 
         let dateCondition = "";
+        let params = [];
+
         if (startDate && endDate) {
-            dateCondition = " AND DATE(ds.sheet_date) BETWEEN ? AND ? ";
+            dateCondition = " AND ds.sheet_date::date BETWEEN $3::date AND $4::date ";
+            params = [userId, userId, startDate, endDate, userId, startDate, endDate, userId, userId];
+        } else {
+            params = [userId, userId, userId, userId, userId];
         }
 
         const query = `
@@ -303,10 +314,10 @@ exports.getTrialBalance = async (req, res) => {
                 INNER JOIN (
                     SELECT DISTINCT LOWER(TRIM(search_id)) AS search_id, customer_name, user_id 
                     FROM daily_customers 
-                    WHERE user_id = ?
+                    WHERE user_id = $1
                 ) dc ON LOWER(TRIM(ds.search_id)) = dc.search_id
-                WHERE ds.user_id = ?
-                  ${dateCondition}
+                WHERE ds.user_id = $2
+                  ${startDate && endDate ? "AND ds.sheet_date::date BETWEEN $3::date AND $4::date" : ""}
 
                 UNION ALL
 
@@ -316,11 +327,11 @@ exports.getTrialBalance = async (req, res) => {
                     CAST(COALESCE(ds.debit_udhaar, 0) AS DECIMAL(10,2)) AS debit_udhaar,
                     CAST(COALESCE(ds.credit_vasooli, 0) AS DECIMAL(10,2)) AS credit_vasooli
                 FROM daily_sheets ds
-                WHERE ds.user_id = ?
-                  ${dateCondition}
+                WHERE ds.user_id = ${startDate && endDate ? "$5" : "$3"}
+                  ${startDate && endDate ? "AND ds.sheet_date::date BETWEEN $6::date AND $7::date" : ""}
                   AND LOWER(TRIM(ds.search_id)) NOT IN (
                       SELECT LOWER(TRIM(search_id)) FROM daily_customers 
-                      WHERE user_id = ? AND search_id IS NOT NULL AND search_id != ''
+                      WHERE user_id = ${startDate && endDate ? "$8" : "$4"} AND search_id IS NOT NULL AND search_id != ''
                   )
 
                 UNION ALL
@@ -331,21 +342,14 @@ exports.getTrialBalance = async (req, res) => {
                     CASE WHEN balance_type = 'DEBIT' THEN CAST(opening_balance AS DECIMAL(10,2)) ELSE 0.00 END AS debit_udhaar,
                     CASE WHEN balance_type = 'CREDIT' THEN CAST(opening_balance AS DECIMAL(10,2)) ELSE 0.00 END AS credit_vasooli
                 FROM chart_of_accounts
-                WHERE user_id = ?
+                WHERE user_id = ${startDate && endDate ? "$9" : "$5"}
 
             ) AS combined_ledger
             GROUP BY party_name
-            ORDER BY party_name ASC;
+            ORDER BY party_name ASC
         `;
 
-        let params = [];
-        if (startDate && endDate) {
-            params = [userId, userId, startDate, endDate, userId, startDate, endDate, userId, userId];
-        } else {
-            params = [userId, userId, userId, userId, userId];
-        }
-
-        const [rows] = await db.query(query, params);
+        const { rows } = await db.query(query, params);
 
         return res.json({
             status: "Success",
@@ -360,7 +364,7 @@ exports.getTrialBalance = async (req, res) => {
 // 7. GET ACCOUNT TYPES
 exports.getAccountTypes = async (req, res) => {
     try {
-        const [types] = await db.query('SELECT * FROM account_types ORDER BY id ASC');
+        const { rows: types } = await db.query('SELECT * FROM account_types ORDER BY id ASC');
         res.json({ status: "Success", data: types });
     } catch (error) {
         console.error("Get Account Types Error:", error);
@@ -382,7 +386,7 @@ exports.createAccount = async (req, res) => {
 
         const query = `
             INSERT INTO chart_of_accounts (account_name, account_type_id, opening_balance, balance_type, user_id)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5)
         `;
 
         await db.query(query, [account_name.trim(), account_type_id, balance, bType, userId]);

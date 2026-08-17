@@ -27,24 +27,24 @@ exports.getCustomerLedgerReport = async (req, res) => {
                 debit_pkr AS debit,
                 credit_pkr AS credit
             FROM credit_ledgers
-            WHERE customer_name = ?
+            WHERE customer_name = $1
         `;
 
         const queryParams = [targetCustomer];
 
         if (userId) {
-            query += ` AND user_id = ?`;
             queryParams.push(userId);
+            query += ` AND user_id = $${queryParams.length}`;
         }
 
         if (sDate && eDate) {
-            query += ` AND DATE(created_at) BETWEEN ? AND ?`;
             queryParams.push(sDate, eDate);
+            query += ` AND created_at::date BETWEEN $${queryParams.length - 1} AND $${queryParams.length}`;
         }
 
         query += ` ORDER BY created_at ASC, id ASC;`;
 
-        const [rows] = await db.query(query, queryParams);
+        const { rows } = await db.query(query, queryParams);
 
         let runningBalance = 0;
         const ledgerData = rows.map(row => {
@@ -87,17 +87,35 @@ exports.getTrialBalance = async (req, res) => {
         const sDate = startDate || start_date;
         const eDate = endDate || end_date;
 
-        let dateClauseCL = '';
-        let dateClauseDC = '';
-        let dateClauseDS = '';
+        const hasDates = Boolean(sDate && eDate);
+        const queryParams = [];
 
-        if (sDate && eDate) {
-            dateClauseCL = ' AND DATE(created_at) BETWEEN ? AND ?';
-            dateClauseDC = ' AND DATE(created_at) BETWEEN ? AND ?';
-            dateClauseDS = ' AND DATE(sheet_date) BETWEEN ? AND ?';
+        // Dynamic Clauses with Positional Parameters ($1, $2, etc.)
+        let clWhere = '1=1';
+        if (userId) { queryParams.push(userId); clWhere += ` AND user_id = $${queryParams.length}`; }
+        if (hasDates) { 
+            queryParams.push(sDate, eDate); 
+            clWhere += ` AND created_at::date BETWEEN $${queryParams.length - 1} AND $${queryParams.length}`; 
         }
 
-        let query = `
+        let dcWhere = '1=1';
+        if (userId) { queryParams.push(userId); dcWhere += ` AND user_id = $${queryParams.length}`; }
+        if (hasDates) { 
+            queryParams.push(sDate, eDate); 
+            dcWhere += ` AND created_at::date BETWEEN $${queryParams.length - 1} AND $${queryParams.length}`; 
+        }
+
+        let dsWhere = '1=1';
+        if (userId) { queryParams.push(userId); dsWhere += ` AND user_id = $${queryParams.length}`; }
+        if (hasDates) { 
+            queryParams.push(sDate, eDate); 
+            dsWhere += ` AND sheet_date::date BETWEEN $${queryParams.length - 1} AND $${queryParams.length}`; 
+        }
+
+        let coaWhere = '1=1';
+        if (userId) { queryParams.push(userId); coaWhere += ` AND user_id = $${queryParams.length}`; }
+
+        const query = `
             SELECT 
                 party_name,
                 SUM(debit) AS total_debit,
@@ -108,7 +126,7 @@ exports.getTrialBalance = async (req, res) => {
                     SUM(debit_pkr) AS debit,
                     SUM(credit_pkr) AS credit
                 FROM credit_ledgers
-                WHERE 1=1 ${userId ? 'AND user_id = ?' : ''} ${dateClauseCL}
+                WHERE ${clWhere}
                 GROUP BY customer_name
 
                 UNION ALL
@@ -118,7 +136,7 @@ exports.getTrialBalance = async (req, res) => {
                     SUM(debit_pkr) AS debit,
                     SUM(credit_pkr) AS credit
                 FROM daily_customers
-                WHERE 1=1 ${userId ? 'AND user_id = ?' : ''} ${dateClauseDC}
+                WHERE ${dcWhere}
                 GROUP BY customer_name
 
                 UNION ALL
@@ -128,7 +146,7 @@ exports.getTrialBalance = async (req, res) => {
                     SUM(total_cash_received) AS debit,
                     0 AS credit
                 FROM daily_sheets
-                WHERE 1=1 ${userId ? 'AND user_id = ?' : ''} ${dateClauseDS}
+                WHERE ${dsWhere}
 
                 UNION ALL
 
@@ -137,31 +155,19 @@ exports.getTrialBalance = async (req, res) => {
                     CASE WHEN account_type IN ('Expense', 'Asset', 'Cash', 'Bank') THEN amount ELSE 0 END AS debit,
                     CASE WHEN account_type IN ('Liability', 'Equity', 'Revenue') THEN amount ELSE 0 END AS credit
                 FROM chart_of_accounts
-                WHERE 1=1 ${userId ? 'AND user_id = ?' : ''}
+                WHERE ${coaWhere}
             ) AS combined_balances
             GROUP BY party_name
-            HAVING (total_debit - total_credit) != 0 OR total_debit > 0 OR total_credit > 0
+            HAVING (SUM(debit) - SUM(credit)) != 0 OR SUM(debit) > 0 OR SUM(credit) > 0
             ORDER BY party_name ASC;
         `;
 
-        const queryParams = [];
-        if (userId) queryParams.push(userId);
-        if (sDate && eDate) queryParams.push(sDate, eDate);
-
-        if (userId) queryParams.push(userId);
-        if (sDate && eDate) queryParams.push(sDate, eDate);
-
-        if (userId) queryParams.push(userId);
-        if (sDate && eDate) queryParams.push(sDate, eDate);
-
-        if (userId) queryParams.push(userId);
-
-        const [results] = await db.query(query, queryParams);
+        const { rows } = await db.query(query, queryParams);
 
         return res.status(200).json({
             success: true,
             status: "Success",
-            data: results
+            data: rows
         });
     } catch (error) {
         console.error('Error fetching Trial Balance:', error);
@@ -198,42 +204,42 @@ exports.getDispenserProfitReport = async (req, res) => {
                 SELECT product_type, rate_per_litre, purchase_price
                 FROM fuel_rates
                 WHERE id IN (SELECT MAX(id) FROM fuel_rates GROUP BY product_type)
-            ) fr ON LOWER(TRIM(mr.fuel_type)) LIKE CONCAT('%', LOWER(TRIM(fr.product_type)), '%')
-                 OR LOWER(TRIM(fr.product_type)) LIKE CONCAT('%', LOWER(TRIM(mr.fuel_type)), '%')
+            ) fr ON LOWER(TRIM(mr.fuel_type)) LIKE '%' || LOWER(TRIM(fr.product_type)) || '%'
+                 OR LOWER(TRIM(fr.product_type)) LIKE '%' || LOWER(TRIM(mr.fuel_type)) || '%'
             WHERE 1=1
         `;
         const detailsParams = [];
 
         if (sDate && eDate) {
-            detailsQuery += ` AND DATE(mr.reading_date) BETWEEN ? AND ?`;
             detailsParams.push(sDate, eDate);
+            detailsQuery += ` AND mr.reading_date::date BETWEEN $${detailsParams.length - 1} AND $${detailsParams.length}`;
         }
         if (userId) {
-            detailsQuery += ` AND (mr.user_id = ? OR mr.user_id IS NULL)`;
             detailsParams.push(userId);
+            detailsQuery += ` AND (mr.user_id = $${detailsParams.length} OR mr.user_id IS NULL)`;
         }
 
         detailsQuery += ` ORDER BY mr.reading_date DESC, mr.id DESC`;
 
-        const [details] = await db.query(detailsQuery, detailsParams);
+        const { rows: details } = await db.query(detailsQuery, detailsParams);
 
         let expenseQuery = `
-            SELECT COALESCE(SUM(debit_udhaar), 0) AS totalExpenses
+            SELECT COALESCE(SUM(debit_udhaar), 0) AS "totalExpenses"
             FROM daily_sheets
-            WHERE LOWER(TRIM(search_id)) IN (?)
+            WHERE LOWER(TRIM(search_id)) = ANY($1::text[])
         `;
         const expenseParams = [EXPENSE_SEARCH_IDS];
 
         if (sDate && eDate) {
-            expenseQuery += ` AND DATE(sheet_date) BETWEEN ? AND ?`;
             expenseParams.push(sDate, eDate);
+            expenseQuery += ` AND sheet_date::date BETWEEN $${expenseParams.length - 1} AND $${expenseParams.length}`;
         }
         if (userId) {
-            expenseQuery += ` AND user_id = ?`;
             expenseParams.push(userId);
+            expenseQuery += ` AND user_id = $${expenseParams.length}`;
         }
 
-        const [expenseRes] = await db.query(expenseQuery, expenseParams);
+        const { rows: expenseRes } = await db.query(expenseQuery, expenseParams);
         const totalExpenses = parseFloat(expenseRes[0]?.totalExpenses) || 0;
 
         let totalLiters = 0;
@@ -279,24 +285,24 @@ exports.getDailySummary = async (req, res) => {
         const { date, userId } = req.query;
         const targetDate = date || new Date().toISOString().split('T')[0];
 
-        let salesQuery = `SELECT SUM(credit_vasooli) as total_sales FROM daily_sheets WHERE DATE(sheet_date) = ?`;
+        let salesQuery = `SELECT SUM(credit_vasooli) as total_sales FROM daily_sheets WHERE sheet_date::date = $1`;
         const salesParams = [targetDate];
 
         if (userId) {
-            salesQuery += ` AND user_id = ?`;
             salesParams.push(userId);
+            salesQuery += ` AND user_id = $${salesParams.length}`;
         }
 
-        let expensesQuery = `SELECT SUM(debit_udhaar) as total_expenses FROM daily_sheets WHERE LOWER(TRIM(search_id)) IN (?) AND DATE(sheet_date) = ?`;
+        let expensesQuery = `SELECT SUM(debit_udhaar) as total_expenses FROM daily_sheets WHERE LOWER(TRIM(search_id)) = ANY($1::text[]) AND sheet_date::date = $2`;
         const expensesParams = [EXPENSE_SEARCH_IDS, targetDate];
 
         if (userId) {
-            expensesQuery += ` AND user_id = ?`;
             expensesParams.push(userId);
+            expensesQuery += ` AND user_id = $${expensesParams.length}`;
         }
 
-        const [sales] = await db.query(salesQuery, salesParams);
-        const [expenses] = await db.query(expensesQuery, expensesParams);
+        const { rows: sales } = await db.query(salesQuery, salesParams);
+        const { rows: expenses } = await db.query(expensesQuery, expensesParams);
 
         const totalSales = parseFloat(sales[0]?.total_sales) || 0;
         const totalExpenses = parseFloat(expenses[0]?.total_expenses) || 0;
@@ -322,7 +328,7 @@ exports.getDailySummary = async (req, res) => {
     }
 };
 
-// 🚀 5. Post Month-End Profit to Diesel & Super Accounts
+// 5. Post Month-End Profit to Diesel & Super Accounts
 exports.postMonthEndProfit = async (req, res) => {
     try {
         const { startDate, start_date, endDate, end_date, userId } = req.body;
@@ -337,7 +343,6 @@ exports.postMonthEndProfit = async (req, res) => {
             });
         }
 
-        // Meter Readings se fuel-wise profit calculate karna
         let fuelProfitQuery = `
             SELECT 
                 TRIM(mr.fuel_type) AS fuel_type,
@@ -350,14 +355,14 @@ exports.postMonthEndProfit = async (req, res) => {
                 SELECT product_type, rate_per_litre, purchase_price
                 FROM fuel_rates
                 WHERE id IN (SELECT MAX(id) FROM fuel_rates GROUP BY product_type)
-            ) fr ON LOWER(TRIM(mr.fuel_type)) LIKE CONCAT('%', LOWER(TRIM(fr.product_type)), '%')
-                 OR LOWER(TRIM(fr.product_type)) LIKE CONCAT('%', LOWER(TRIM(mr.fuel_type)), '%')
-            WHERE DATE(mr.reading_date) BETWEEN ? AND ?
-              AND (mr.user_id = ? OR mr.user_id IS NULL)
+            ) fr ON LOWER(TRIM(mr.fuel_type)) LIKE '%' || LOWER(TRIM(fr.product_type)) || '%'
+                 OR LOWER(TRIM(fr.product_type)) LIKE '%' || LOWER(TRIM(mr.fuel_type)) || '%'
+            WHERE mr.reading_date::date BETWEEN $1 AND $2
+              AND (mr.user_id = $3 OR mr.user_id IS NULL)
             GROUP BY mr.fuel_type
         `;
 
-        const [profits] = await db.query(fuelProfitQuery, [sDate, eDate, userId]);
+        const { rows: profits } = await db.query(fuelProfitQuery, [sDate, eDate, userId]);
 
         if (profits.length === 0) {
             return res.status(400).json({
@@ -367,7 +372,7 @@ exports.postMonthEndProfit = async (req, res) => {
             });
         }
 
-        let addedRecords = [];
+        const addedRecords = [];
 
         for (const row of profits) {
             const rawFuelName = (row.fuel_type || '').toLowerCase();
@@ -387,9 +392,8 @@ exports.postMonthEndProfit = async (req, res) => {
             }
 
             if (searchId) {
-                // Ensure customer name exists in daily_customers
-                const [custRes] = await db.query(
-                    'SELECT customer_name FROM daily_customers WHERE user_id = ? AND search_id = ?',
+                const { rows: custRes } = await db.query(
+                    'SELECT customer_name FROM daily_customers WHERE user_id = $1 AND search_id = $2 LIMIT 1',
                     [userId, searchId]
                 );
 
@@ -399,10 +403,9 @@ exports.postMonthEndProfit = async (req, res) => {
 
                 const description = `Profit Return - ${targetCustomerName}`;
 
-                // Insert into credit_ledgers as Credit entry
-                const [insertRes] = await db.query(
+                await db.query(
                     `INSERT INTO credit_ledgers (user_id, customer_name, description, debit_pkr, credit_pkr, created_at) 
-                     VALUES (?, ?, ?, 0, ?, NOW())`,
+                     VALUES ($1, $2, $3, 0, $4, CURRENT_TIMESTAMP)`,
                     [userId, targetCustomerName, description, profitAmount]
                 );
 

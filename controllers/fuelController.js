@@ -9,15 +9,16 @@ exports.getFuelRates = async (req, res) => {
         }
 
         // Fetching rates including purchase_price and calculated profit_per_liter
-        const [rows] = await db.query(
-            `SELECT id, rate_date, product_name, product_type, specific_category, 
-                    rate_per_litre, purchase_price, user_id, created_at,
-                    (rate_per_litre - purchase_price) AS profit_per_liter
-             FROM fuel_rates 
-             WHERE user_id = ? 
-             ORDER BY rate_date DESC, id DESC`, 
-            [userId]
-        );
+        const query = `
+            SELECT id, rate_date, product_name, product_type, specific_category, 
+                   rate_per_litre, purchase_price, user_id, created_at,
+                   CAST((rate_per_litre - purchase_price) AS DECIMAL(10,2)) AS profit_per_liter
+            FROM fuel_rates 
+            WHERE user_id = $1 
+            ORDER BY rate_date DESC, id DESC
+        `;
+
+        const { rows } = await db.query(query, [userId]);
         
         res.json({
             status: "Success",
@@ -41,7 +42,7 @@ exports.updateFuelRate = async (req, res) => {
 
         const query = `
             INSERT INTO fuel_rates (rate_date, product_name, product_type, specific_category, rate_per_litre, purchase_price, user_id) 
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
         `;
         
         await db.query(query, [
@@ -74,7 +75,7 @@ exports.deleteFuelRate = async (req, res) => {
             return res.status(400).json({ status: "Error", message: "User ID required for verification!" });
         }
 
-        await db.query('DELETE FROM fuel_rates WHERE id = ? AND user_id = ?', [id, userId]);
+        await db.query('DELETE FROM fuel_rates WHERE id = $1 AND user_id = $2', [id, userId]);
 
         res.json({
             status: "Success",

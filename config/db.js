@@ -1,18 +1,24 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
-// PostgreSQL (Supabase) Connection Pool setup
+// Direct Supabase Connection String (Port 5432)
+const connectionString = process.env.DATABASE_URL || "postgresql://postgres:aftab4049102@db.nwydokomsuozvvqwekwn.supabase.co:5432/postgres";
+
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_URL?.includes('localhost') 
-        ? false 
-        : { rejectUnauthorized: false }
+    connectionString: connectionString,
+    ssl: {
+        rejectUnauthorized: false
+    },
+    connectionTimeoutMillis: 10000, // 10 seconds
+    idleTimeoutMillis: 30000
 });
 
-// Query execution helper (compatibility for async/await)
 const db = {
     query: (text, params) => pool.query(text, params),
-    execute: (text, params) => pool.query(text, params)
+    execute: (text, params) => pool.query(text, params),
+    getClient: () => pool.connect(), // Added for transactions
+    connect: () => pool.connect(),   // Added direct alias
+    pool: pool                       // Direct pool reference
 };
 
 pool.on('connect', () => {

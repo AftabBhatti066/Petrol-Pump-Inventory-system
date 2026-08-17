@@ -3,7 +3,6 @@ const db = require('../config/db');
 exports.getDashboardData = async (req, res) => {
     try {
         const selectedDate = req.query.date || new Date().toISOString().split('T')[0];
-        // Frontend se aane wali userId ko catch kiya
         const userId = req.query.userId; 
 
         if (!userId) {
@@ -11,45 +10,62 @@ exports.getDashboardData = async (req, res) => {
         }
 
         // 1. Tank Fuel Stocks (Filtered by user_id)
-        const [tankStocks] = await db.query(
-            `SELECT fuel_type, current_stock FROM fuel_stocks WHERE user_id = ?`, [userId]
+        const tankRes = await db.query(
+            `SELECT fuel_type, current_stock FROM fuel_stocks WHERE user_id = $1`, 
+            [userId]
         );
+        const tankStocks = tankRes.rows || [];
 
         // 2. Today's Nozzle Meter Readings (Filtered by user_id)
-        const [meterStats] = await db.query(
+        const meterRes = await db.query(
             `SELECT 
                 fuel_type, 
                 COALESCE(SUM(liters_sold), 0) AS total_liters_sold 
              FROM meter_readings 
-             WHERE DATE(reading_date) = DATE(?) AND user_id = ?
-             GROUP BY fuel_type`, [selectedDate, userId]
+             WHERE reading_date::date = $1::date AND user_id = $2
+             GROUP BY fuel_type`, 
+            [selectedDate, userId]
         );
+        const meterStats = meterRes.rows || [];
 
         // 3. Daily Sheet Financial Summary (Filtered by user_id)
-        const [dailySheetStats] = await db.query(
+        const dailySheetRes = await db.query(
             `SELECT 
                 COALESCE(SUM(debit_udhaar), 0) AS total_today_udhaar,
                 COALESCE(SUM(credit_vasooli), 0) AS total_today_vasooli
              FROM daily_sheets
-             WHERE DATE(sheet_date) = DATE(?) AND user_id = ?`, [selectedDate, userId]
+             WHERE sheet_date::date = $1::date AND user_id = $2`, 
+            [selectedDate, userId]
         );
+        const dailySheetStats = dailySheetRes.rows || [{ total_today_udhaar: 0, total_today_vasooli: 0 }];
 
         // 4. Vehicle Credit Ledger Summary (Filtered by user_id)
-        const [creditLedgerStats] = await db.query(
+        const creditLedgerRes = await db.query(
             `SELECT 
                 COALESCE(SUM(total_amount), 0) AS total_credit_sales_pkr,
                 COALESCE(SUM(litres), 0) AS total_credit_litres
              FROM credit_ledgers
-             WHERE DATE(entry_date) = DATE(?) AND user_id = ?`, [selectedDate, userId]
+             WHERE entry_date::date = $1::date AND user_id = $2`, 
+            [selectedDate, userId]
         );
+        const creditLedgerStats = creditLedgerRes.rows || [{ total_credit_sales_pkr: 0, total_credit_litres: 0 }];
 
         // 5. Low Lubricant Stock Warning (Filtered by user_id)
-        const [lowLubricants] = await db.query(
-            `SELECT item_name, current_stock FROM lubricant_stocks WHERE current_stock <= 5 AND user_id = ? ORDER BY current_stock ASC`, [userId]
+        const lowLubeRes = await db.query(
+            `SELECT item_name, current_stock 
+             FROM lubricant_stocks 
+             WHERE current_stock <= 5 AND user_id = $1 
+             ORDER BY current_stock ASC`, 
+            [userId]
         );
+        const lowLubricants = lowLubeRes.rows || [];
 
         // 6. Registered Customers Count (Filtered by user_id)
-        const [customerCount] = await db.query(`SELECT COUNT(*) AS total FROM daily_customers WHERE user_id = ?`, [userId]);
+        const customerRes = await db.query(
+            `SELECT COUNT(*) AS total FROM daily_customers WHERE user_id = $1`, 
+            [userId]
+        );
+        const customerCount = customerRes.rows || [{ total: 0 }];
 
         // Format Matrix Table Data
         const meterMap = {};
@@ -65,7 +81,7 @@ exports.getDashboardData = async (req, res) => {
                 today_udhaar: parseFloat(dailySheetStats[0].total_today_udhaar || 0),
                 today_vasooli: parseFloat(dailySheetStats[0].total_today_vasooli || 0),
                 today_credit_ledger_pkr: parseFloat(creditLedgerStats[0].total_credit_sales_pkr || 0),
-                total_customers: customerCount[0].total
+                total_customers: parseInt(customerCount[0].total || 0, 10)
             },
             dispensed_fuel: {
                 diesel: meterMap['Diesel'] || meterMap['HSD'] || 0,
