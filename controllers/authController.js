@@ -17,16 +17,16 @@ const ensureStaticCustomers = async (userId) => {
     ];
 
     for (const customer of staticCustomers) {
-        // Check agar yeh static customer pehle se user_id ke sath majood na ho
-        const [existing] = await db.query(
-            'SELECT id FROM daily_customers WHERE user_id = ? AND search_id = ?',
+        // Postgres Syntax: $1, $2 placeholders
+        const existing = await db.query(
+            'SELECT id FROM daily_customers WHERE user_id = $1 AND search_id = $2',
             [userId, customer.search_id]
         );
 
-        if (existing.length === 0) {
+        if (existing.rows.length === 0) {
             // Agar nahi hai to insert kar do
             await db.query(
-                'INSERT INTO daily_customers (customer_name, search_id, user_id) VALUES (?, ?, ?)',
+                'INSERT INTO daily_customers (customer_name, search_id, user_id) VALUES ($1, $2, $3)',
                 [customer.customer_name, customer.search_id, userId]
             );
         }
@@ -43,27 +43,28 @@ const registerUser = async (req, res) => {
     }
 
     try {
-        const [existing] = await db.query('SELECT id FROM users WHERE username = ?', [username]);
+        const existing = await db.query('SELECT id FROM users WHERE username = $1', [username]);
 
-        if (existing.length > 0) {
+        if (existing.rows.length > 0) {
             return res.status(400).json({ status: "Error", message: "Yeh Username pehle se maujood hai!" });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        const [result] = await db.query(
-            'INSERT INTO users (full_name, username, password, role) VALUES (?, ?, ?, ?)',
+        // RETURNING id se inserted user id milti hai Postgres mein
+        const result = await db.query(
+            'INSERT INTO users (full_name, username, password, role) VALUES ($1, $2, $3, $4) RETURNING id',
             [fullName, username, hashedPassword, 'Manager']
         );
 
-        const newUserId = result.insertId;
+        const newUserId = result.rows[0].id;
 
-        // 🚀 A. Automatic Fuel Stock Initialize karna
+        // 🚀 A. Automatic Fuel Stock Initialize karna ($1, $2)
         const fuelQuery = `
             INSERT INTO fuel_stocks (fuel_type, current_stock, user_id) 
             VALUES 
-            ('Diesel', 0.00, ?),
-            ('Super', 0.00, ?)
+            ('Diesel', 0.00, $1),
+            ('Super', 0.00, $2)
         `;
         await db.query(fuelQuery, [newUserId, newUserId]);
 
@@ -71,15 +72,15 @@ const registerUser = async (req, res) => {
         const lubricantQuery = `
             INSERT INTO lubricant_stocks (item_name, current_stock, user_id) 
             VALUES 
-            ('T 2 20Ltrs', 0, ?),
-            ('Balize .75', 0, ?),
-            ('Balize 1Ltrs', 0, ?),
-            ('Cariant 3Ltrs', 0, ?),
-            ('Cariant 4ltrs', 0, ?),
-            ('Deo 6000 4Ltrs', 0, ?),
-            ('Deo 6000 10Ltrs', 0, ?),
-            ('Deo 8000 4Ltrs', 0, ?),
-            ('Deo 8000 10Ltrs', 0, ?)
+            ('T 2 20Ltrs', 0, $1),
+            ('Balize .75', 0, $2),
+            ('Balize 1Ltrs', 0, $3),
+            ('Cariant 3Ltrs', 0, $4),
+            ('Cariant 4ltrs', 0, $5),
+            ('Deo 6000 4Ltrs', 0, $6),
+            ('Deo 6000 10Ltrs', 0, $7),
+            ('Deo 8000 4Ltrs', 0, $8),
+            ('Deo 8000 10Ltrs', 0, $9)
         `;
         await db.query(lubricantQuery, [
             newUserId, newUserId, newUserId, 
@@ -87,7 +88,7 @@ const registerUser = async (req, res) => {
             newUserId, newUserId, newUserId
         ]);
 
-        // 🚀 C. Automatic Static Customers Create karna (All 9 static accounts)
+        // 🚀 C. Automatic Static Customers Create karna
         await ensureStaticCustomers(newUserId);
 
         console.log(`Stocks and All 9 Static Customers initialized automatically for User ID: ${newUserId}`);
@@ -108,20 +109,20 @@ const loginUser = async (req, res) => {
     }
 
     try {
-        const [rows] = await db.query('SELECT * FROM users WHERE username = ?', [username]);
+        const result = await db.query('SELECT * FROM users WHERE username = $1', [username]);
 
-        if (rows.length === 0) {
+        if (result.rows.length === 0) {
             return res.status(401).json({ status: "Error", message: "Ghalat Username ya Password hai!" });
         }
 
-        const user = rows[0];
+        const user = result.rows[0];
         const isMatch = await bcrypt.compare(password, user.password);
 
         if (!isMatch) {
             return res.status(401).json({ status: "Error", message: "Ghalat Username ya Password hai!" });
         }
 
-        // 🚀 Login par automatic check runs so every user gets all 9 static accounts
+        // 🚀 Automatic check runs so every user gets all 9 static accounts
         await ensureStaticCustomers(user.id);
 
         return res.json({
@@ -131,7 +132,7 @@ const loginUser = async (req, res) => {
         });
     } catch (err) {
         console.error("Login Error:", err);
-        return res.status(500).json({ status: "Error", message: "Database Error!" });
+        return res.status(500).json({ status: "Error", message: "Database Error: " + err.message });
     }
 };
 

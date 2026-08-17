@@ -69,15 +69,11 @@ exports.addCustomer = async (req, res) => {
     }
 };
 
-// 3. Bulk Batch Save Daily Sheet Entries (UPDATED & SAFE FOR MULTIPLE SAME-SEARCH-ID ENTRIES)
+// 3. Bulk Batch Save Daily Sheet Entries (NO DELETE - MULTIPLE ENTRIES ALLOWED)
 exports.saveDailySheetEntry = async (req, res) => {
     const connection = await db.getConnection();
     try {
         await connection.beginTransaction();
-
-        // 🔍 Debug Connection Check (Terminal mein verify karein ke konsa DB hit ho raha hai)
-        const [dbCheck] = await connection.query("SELECT DATABASE() as current_db;");
-        console.log("👉 NODE IS CONNECTED TO DATABASE:", dbCheck[0].current_db);
 
         const rawEntries = req.body.entries ? req.body.entries : [req.body];
         const mainUserId = req.body.userId; 
@@ -91,14 +87,7 @@ exports.saveDailySheetEntry = async (req, res) => {
 
         const formattedSheetDate = formatDate(sheetDateParam);
 
-        // Step 1: Us selected date ki pehle se mojood entries delete karo
-        const deleteQuery = `
-            DELETE FROM daily_sheets 
-            WHERE user_id = ? AND DATE_FORMAT(sheet_date, '%Y-%m-%d') = ?
-        `;
-        await connection.query(deleteQuery, [mainUserId, formattedSheetDate]);
-
-        // Step 2: Entries filter aur batch prepare karo
+        // Step 1: Entries filter aur batch prepare karo (NO DELETE)
         const insertValues = [];
 
         for (const item of rawEntries) {
@@ -141,7 +130,7 @@ exports.saveDailySheetEntry = async (req, res) => {
             }
         }
 
-        // Step 3: Single Bulk Batch Insert
+        // Step 2: Single Bulk Batch Insert
         if (insertValues.length > 0) {
             const batchInsertQuery = `
                 INSERT INTO daily_sheets 
@@ -170,6 +159,7 @@ exports.saveDailySheetEntry = async (req, res) => {
         });
     }
 };
+
 // 4. Fetch Daily Sheet By Date (WITH PREVIOUS CUMULATIVE DEBIT & CREDIT CARRY FORWARD)
 exports.getDailySheetByDate = async (req, res) => {
     try {
@@ -236,12 +226,12 @@ exports.getDailySheetByDate = async (req, res) => {
         res.json({
             status: "Success",
             sheet_date: formattedDate,
-            opening_debit: opening_debit,        // Pichle dino ka total debit carry forward
-            opening_credit: opening_credit,      // Pichle dino ka total credit carry forward
-            total_debit: overall_debit,          // Aaj tak ka overall grand total debit
-            total_credit: overall_credit,        // Aaj tak ka overall grand total credit
-            opening_balance: opening_balance,    // Opening cash balance
-            closing_balance: closing_balance,    // Closing cash balance
+            opening_debit: opening_debit,
+            opening_credit: opening_credit,
+            total_debit: overall_debit,
+            total_credit: overall_credit,
+            opening_balance: opening_balance,
+            closing_balance: closing_balance,
             entries: rows
         });
     } catch (error) {
@@ -290,6 +280,7 @@ exports.deleteCustomerPermanently = async (req, res) => {
         res.status(500).json({ status: "Error", db_error: error.message });
     }
 };
+
 // 7. Static Expenses Report
 exports.getExpensesReport = async (req, res) => {
     try {
@@ -308,16 +299,14 @@ exports.getExpensesReport = async (req, res) => {
 
         const EXPENSE_SEARCH_IDS = ['mi', 'i', 'bb', 'pm', 'rg', 's', 'l'];
 
-        // 🚀 Agar Frontend se dates na aayi hon, to default Aaj (Today) ki date set karein
         let dateCondition = `AND DATE(ds.sheet_date) = CURDATE()`;
         let queryParams = [cleanUserId, EXPENSE_SEARCH_IDS];
 
         if (sDate && eDate) {
             dateCondition = `AND DATE(ds.sheet_date) BETWEEN ? AND ?`;
-            queryParams = [cleanUserId, EXPENSE_SEARCH_IDS, sDate, eDate];
+            queryParam = [cleanUserId, EXPENSE_SEARCH_IDS, sDate, eDate];
         }
 
-        // 🚀 INNER JOIN ensures ke sirf wohi entries aayein jo us date ko enter hui hain
         const query = `
             SELECT 
                 LOWER(TRIM(dc.search_id)) AS search_id,

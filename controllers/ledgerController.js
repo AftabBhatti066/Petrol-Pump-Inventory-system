@@ -103,7 +103,7 @@ exports.logCreditFuel = async (req, res) => {
     }
 };
 
-// 3. LOG VEHICLE VASOOLI (Naya Function: Gari ki Vasooli Record karne ke liye)
+// 3. LOG VEHICLE VASOOLI
 exports.logVehicleVasooli = async (req, res) => {
     try {
         const { gari_number, driver_name, amount_paid, entry_date, userId } = req.body;
@@ -153,7 +153,7 @@ exports.logVehicleVasooli = async (req, res) => {
     }
 };
 
-// GET CUSTOMER LEDGER (STRICT EXACT ID MATCH FROM DAILY SHEETS)
+// 4. GET CUSTOMER LEDGER (FIXED: NO DUPLICATE ROW CREATION)
 exports.getVehicleLedger = async (req, res) => {
     try {
         const rawQuery = req.params.gari_number || '';
@@ -166,44 +166,53 @@ exports.getVehicleLedger = async (req, res) => {
         const trimmedQuery = rawQuery.trim();
         const isAllQuery = !trimmedQuery || trimmedQuery.toUpperCase() === 'ALL';
 
-        // Strictly Search Only From daily_sheets Table
+        // Direct SELECT without multiplying JOINs
         let dailySql = `
             SELECT 
                 ds.id,
-                COALESCE(dc.customer_name, CONCAT('Customer (', TRIM(ds.search_id), ')')) AS driver_name,
+                (
+                    SELECT dc.customer_name 
+                    FROM daily_customers dc 
+                    WHERE LOWER(TRIM(dc.search_id)) = LOWER(TRIM(ds.search_id)) 
+                      AND dc.user_id = ds.user_id 
+                    LIMIT 1
+                ) AS driver_name,
                 ds.search_id,
                 'Daily Sheet' AS product,
                 0 AS litres,
                 0 AS rate_pkr,
-                CAST(ds.debit_udhaar AS DECIMAL(10,2)) AS debit_udhaar,
-                CAST(ds.credit_vasooli AS DECIMAL(10,2)) AS credit_vasooli,
-                CAST((ds.debit_udhaar - ds.credit_vasooli) AS DECIMAL(10,2)) AS net_total,
+                CAST(COALESCE(ds.debit_udhaar, 0) AS DECIMAL(10,2)) AS debit_udhaar,
+                CAST(COALESCE(ds.credit_vasooli, 0) AS DECIMAL(10,2)) AS credit_vasooli,
+                CAST((COALESCE(ds.debit_udhaar, 0) - COALESCE(ds.credit_vasooli, 0)) AS DECIMAL(10,2)) AS net_total,
                 ds.sheet_date AS entry_date,
                 'CASH' AS payment_type,
                 ds.description AS description,
                 ds.user_id
             FROM daily_sheets ds
-            LEFT JOIN daily_customers dc 
-                ON LOWER(TRIM(ds.search_id)) = LOWER(TRIM(dc.search_id)) 
-                AND (dc.user_id = ? OR dc.user_id IS NULL)
-            WHERE (ds.user_id = ? OR ds.user_id IS NULL OR ds.user_id = '' OR ds.user_id = 'undefined')
+            WHERE ds.user_id = ?
         `;
 
-        let dailyParams = [userId, userId];
+        let dailyParams = [userId];
 
-        // Agar ALL nahi hai to Exact ID match karo (Case-insensitive Trimmed Match)
+        // Case-insensitive Search ID Match
         if (!isAllQuery) {
             dailySql += ` AND LOWER(TRIM(ds.search_id)) = LOWER(?)`;
             dailyParams.push(trimmedQuery);
         }
 
-        // Execute Query
         const [cashRows] = await db.query(dailySql, dailyParams);
+
+        // Fallback for customer_name if not found
+        cashRows.forEach(row => {
+            if (!row.driver_name) {
+                row.driver_name = `Customer (${row.search_id.trim()})`;
+            }
+        });
 
         // Sort entries by Date Descending
         cashRows.sort((a, b) => new Date(b.entry_date) - new Date(a.entry_date));
 
-        // Calculate Totals
+        // Calculate Totals accurately
         let total_debit = 0;
         let total_credit_vasooli = 0;
 
@@ -229,6 +238,7 @@ exports.getVehicleLedger = async (req, res) => {
         });
     }
 };
+
 // 5. DELETE CREDIT ENTRY
 exports.deleteCreditEntry = async (req, res) => {
     try {
@@ -240,7 +250,7 @@ exports.deleteCreditEntry = async (req, res) => {
         }
 
         const [entryCheck] = await db.query(
-            'SELECT * FROM credit_ledgers WHERE id = ? AND (user_id = ? OR user_id IS NULL)', 
+            'SELECT * FROM credit_ledgers WHERE id = ? AND user_id = ?', 
             [id, userId]
         );
         
@@ -251,7 +261,7 @@ exports.deleteCreditEntry = async (req, res) => {
             });
         }
 
-        await db.query('DELETE FROM credit_ledgers WHERE id = ? AND (user_id = ? OR user_id IS NULL)', [id, userId]);
+        await db.query('DELETE FROM credit_ledgers WHERE id = ? AND user_id = ?', [id, userId]);
 
         res.json({
             status: "Success",
@@ -263,19 +273,17 @@ exports.deleteCreditEntry = async (req, res) => {
         res.status(500).json({ status: "Error", message: "Database Error: " + error.message });
     }
 };
-// 6. GET TRIAL BALANCE SUMMARY (FILTERED BY DATE & ONLY DAILY SHEETS)
+
+// 6. GET TRIAL BALANCE SUMMARY (FIXED & DEDUPLICATED)
 exports.getTrialBalance = async (req, res) => {
     try {
-        const { userId, startDate, endDate } = req.query; // Date params add kiye hain
+        const { userId, startDate, endDate } = req.query;
 
         if (!userId) {
             return res.status(400).json({ status: "Error", message: "User ID is required" });
         }
 
-        // Base Date Filter Logic for daily_sheets
         let dateCondition = "";
-        const queryParams = [userId];
-
         if (startDate && endDate) {
             dateCondition = " AND DATE(ds.sheet_date) BETWEEN ? AND ? ";
         }
@@ -286,18 +294,19 @@ exports.getTrialBalance = async (req, res) => {
                 COALESCE(SUM(debit_udhaar), 0) AS total_debit,
                 COALESCE(SUM(credit_vasooli), 0) AS total_credit
             FROM (
-                -- Stream 1: Master Daily Customers Joined with Daily Sheets
+                -- Stream 1: Unique Customer Names with direct Daily Sheets aggregation
                 SELECT 
                     TRIM(dc.customer_name) AS party_name,
                     CAST(COALESCE(ds.debit_udhaar, 0) AS DECIMAL(10,2)) AS debit_udhaar,
                     CAST(COALESCE(ds.credit_vasooli, 0) AS DECIMAL(10,2)) AS credit_vasooli
-                FROM daily_customers dc
-                LEFT JOIN daily_sheets ds 
-                    ON LOWER(TRIM(dc.search_id)) = LOWER(TRIM(ds.search_id))
-                    AND (ds.user_id = dc.user_id OR ds.user_id IS NULL OR dc.user_id IS NULL)
-                    ${dateCondition}
-                WHERE (dc.user_id = ? OR dc.user_id IS NULL OR dc.user_id = '' OR dc.user_id = 'undefined')
-                  AND dc.customer_name IS NOT NULL AND TRIM(dc.customer_name) != ''
+                FROM daily_sheets ds
+                INNER JOIN (
+                    SELECT DISTINCT LOWER(TRIM(search_id)) AS search_id, customer_name, user_id 
+                    FROM daily_customers 
+                    WHERE user_id = ?
+                ) dc ON LOWER(TRIM(ds.search_id)) = dc.search_id
+                WHERE ds.user_id = ?
+                  ${dateCondition}
 
                 UNION ALL
 
@@ -307,34 +316,33 @@ exports.getTrialBalance = async (req, res) => {
                     CAST(COALESCE(ds.debit_udhaar, 0) AS DECIMAL(10,2)) AS debit_udhaar,
                     CAST(COALESCE(ds.credit_vasooli, 0) AS DECIMAL(10,2)) AS credit_vasooli
                 FROM daily_sheets ds
-                WHERE (ds.user_id = ? OR ds.user_id IS NULL OR ds.user_id = '' OR ds.user_id = 'undefined')
+                WHERE ds.user_id = ?
                   ${dateCondition}
-                  AND ds.search_id NOT IN (
-                      SELECT search_id FROM daily_customers 
-                      WHERE search_id IS NOT NULL AND search_id != ''
+                  AND LOWER(TRIM(ds.search_id)) NOT IN (
+                      SELECT LOWER(TRIM(search_id)) FROM daily_customers 
+                      WHERE user_id = ? AND search_id IS NOT NULL AND search_id != ''
                   )
 
                 UNION ALL
 
-                -- Stream 3: Master Chart of Accounts (Opening balances ko range ke mutabiq load karega)
+                -- Stream 3: Master Chart of Accounts
                 SELECT 
                     account_name AS party_name,
                     CASE WHEN balance_type = 'DEBIT' THEN CAST(opening_balance AS DECIMAL(10,2)) ELSE 0.00 END AS debit_udhaar,
                     CASE WHEN balance_type = 'CREDIT' THEN CAST(opening_balance AS DECIMAL(10,2)) ELSE 0.00 END AS credit_vasooli
                 FROM chart_of_accounts
-                WHERE (user_id = ? OR user_id IS NULL OR user_id = '' OR user_id = 'undefined')
+                WHERE user_id = ?
 
             ) AS combined_ledger
             GROUP BY party_name
             ORDER BY party_name ASC;
         `;
 
-        // Parameters array prepare karna for MySQL query
         let params = [];
         if (startDate && endDate) {
-            params = [startDate, endDate, userId, userId, startDate, endDate, userId];
+            params = [userId, userId, startDate, endDate, userId, startDate, endDate, userId, userId];
         } else {
-            params = [userId, userId, userId];
+            params = [userId, userId, userId, userId, userId];
         }
 
         const [rows] = await db.query(query, params);
@@ -348,7 +356,8 @@ exports.getTrialBalance = async (req, res) => {
         return res.status(500).json({ status: "Error", message: error.message });
     }
 };
-// 7. GET ACCOUNT TYPES (For Dropdown)
+
+// 7. GET ACCOUNT TYPES
 exports.getAccountTypes = async (req, res) => {
     try {
         const [types] = await db.query('SELECT * FROM account_types ORDER BY id ASC');
