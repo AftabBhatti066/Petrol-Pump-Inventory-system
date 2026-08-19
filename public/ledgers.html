@@ -161,7 +161,6 @@
         <a href="dashboard.html" class="tab-item">📊 Dashboard</a>
         <a href="meter-reading.html" class="tab-item">⛽ Meter Reading</a>
         <a href="daily-sheet.html" class="tab-item">📝 Daily Sheet</a>
-
         <a href="expenses.html" class="tab-item">🏷️ Expense</a>
         <a href="ledgers.html" class="tab-item active">📒 Ledgers</a>
         <a href="pricing.html" class="tab-item">🏷️ Pricing</a>
@@ -210,10 +209,10 @@
                 <tr style="background-color: #d0e1f9; color: #1c3b5e;">
                     <th style="width: 8%; text-align: center;">Sr #</th>
                     <th style="width: 12%;">Date</th>
-                    <th style="width: 34%;">Description</th>
+                    <th style="width: 32%;">Description</th>
                     <th style="width: 15%;">Debit (Udhaar)</th>
                     <th style="width: 15%;">Credit (Vasooli)</th>
-                    <th style="width: 16%; text-align: right;">Total / Balance</th>
+                    <th style="width: 18%; text-align: right;">Running Balance</th>
                 </tr>
             </thead>
             <tbody id="ledgerTableBody">
@@ -276,12 +275,15 @@
                     document.getElementById('ledgerSection').style.display = 'block';
 
                     const history = data.history || [];
-                    renderLedgerTable(history);
+                    const openingBalance = parseFloat(data.opening_balance || 0);
+
+                    // Render table with calculated running cumulative balance & Dr/Cr tag
+                    renderLedgerTable(history, openingBalance);
 
                     // Top Customer Name fetch & set
                     let detectedName = "Unknown Customer";
-                    if (history.length > 0 && history[0].driver_name) {
-                        detectedName = history[0].driver_name;
+                    if (history.length > 0 && (history[0].driver_name || history[0].customer_name)) {
+                        detectedName = history[0].driver_name || history[0].customer_name;
                     }
 
                     // Display in Screen Card
@@ -296,19 +298,19 @@
                     updateSummaryElement('totalDebitAmount', `${(data.total_debit || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`);
                     updateSummaryElement('totalCreditVasooli', `${(data.total_credit_vasooli || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`);
                     
-                    // Net Balance calculation with DEBIT / CREDIT / CLEARED Status
-                    const netBal = parseFloat(data.net_balance || 0);
+                    // Net Balance calculation with DEBIT (Dr) / CREDIT (Cr) / CLEARED Status
+                    const netBal = Math.round(parseFloat(data.net_balance || 0) * 100) / 100;
                     let netText = "";
                     let netColor = "#2980b9";
 
                     if (netBal > 0) {
-                        netText = `${netBal.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR (DEBIT)`;
-                        netColor = "#c0392b"; // Debit = Udhaar lene hain
+                        netText = `${netBal.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR (Db)`;
+                        netColor = "#c0392b"; // Debit / Udhaar
                     } else if (netBal < 0) {
-                        netText = `${Math.abs(netBal).toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR (CREDIT)`;
-                        netColor = "#27ae60"; // Credit = Vasooli ziada mili
+                        netText = `${Math.abs(netBal).toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR (Cr)`;
+                        netColor = "#27ae60"; // Credit / Vasooli
                     } else {
-                        netText = `0.00 PKR (CLEARED)`;
+                        netText = `0.00 PKR (Cleared)`;
                         netColor = "#2980b9";
                     }
 
@@ -332,7 +334,7 @@
             if (el) el.innerText = value;
         }
 
-        function renderLedgerTable(history) {
+        function renderLedgerTable(history, openingBalance = 0) {
             const tbody = document.getElementById('ledgerTableBody');
             if (!tbody) return;
             tbody.innerHTML = '';
@@ -342,7 +344,33 @@
                 return;
             }
 
-            history.forEach(row => {
+            // --- RUNNING BALANCE INITIALIZATION ---
+            let runningBalance = parseFloat(openingBalance) || 0;
+            let displaySrNo = 1; // Filtered serial number index counter
+
+            history.forEach((row) => {
+
+                // --- DEBIT & CREDIT VALUE EXTRACTION ---
+                const rawDebit = parseFloat(row.debit_udhaar !== undefined ? row.debit_udhaar : (row.debit || 0));
+                const rawCredit = parseFloat(row.credit_vasooli !== undefined ? row.credit_vasooli : (row.credit || 0));
+
+                let debitAmount = 0;
+                let creditAmount = 0;
+
+                const pType = (row.payment_type || row.type || '').toUpperCase();
+
+                if (pType === 'VASOOLI' || pType === 'CREDIT' || rawCredit > 0) {
+                    creditAmount = rawCredit > 0 ? rawCredit : parseFloat(row.amount || 0);
+                } else if (pType === 'UDHAAR' || pType === 'DEBIT' || rawDebit > 0) {
+                    debitAmount = rawDebit > 0 ? rawDebit : parseFloat(row.amount || 0);
+                }
+
+                // --- ZERO AMOUNT FILTER CHECK ---
+                // Agar Debit aur Credit dono zero (0) hain toh ye entry skip ho jayegi
+                if (debitAmount === 0 && creditAmount === 0) {
+                    return;
+                }
+
                 const formattedDate = row.entry_date ? new Date(row.entry_date).toLocaleDateString('en-GB') : '-';
 
                 let description = '-';
@@ -356,30 +384,48 @@
                     description = 'Daily Sheet Entry';
                 }
 
-                const debitAmount = parseFloat(row.debit_udhaar || 0);
-                const creditAmount = parseFloat(row.credit_vasooli || 0);
-                
-                // Difference / Total Calculation: Credit (Vasooli) - Debit (Udhaar)
-                const totalDifference = creditAmount - debitAmount;
-                const totalColor = totalDifference < 0 ? '#c0392b' : (totalDifference > 0 ? '#27ae60' : '#333');
+                // --- CUMULATIVE RUNNING BALANCE CALCULATION ---
+                runningBalance = runningBalance + debitAmount - creditAmount;
+
+                // Precision Rounding to avoid 0.0000001 JS Math bugs
+                const roundedBalance = Math.round(Math.abs(runningBalance) * 100) / 100;
+
+                // --- DIRECT TRANSACTION ENTRY BASE Dr / Cr TAGGING ---
+                let balanceText = '';
+                let balanceColor = '#333';
+
+                if (debitAmount > 0) {
+                    // Agar entry DEBIT (Udhaar) ki hai -> Show Dr
+                    balanceText = `${roundedBalance.toLocaleString('en-PK', { minimumFractionDigits: 2 })} Dr`;
+                    balanceColor = '#c0392b'; // Red for Debit (Udhaar)
+                } else if (creditAmount > 0) {
+                    // Agar entry CREDIT (Vasooli) ki hai -> Show Cr
+                    balanceText = `${roundedBalance.toLocaleString('en-PK', { minimumFractionDigits: 2 })} Cr`;
+                    balanceColor = '#27ae60'; // Green for Credit (Vasooli)
+                }
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td style="text-align: center;"><strong>${row.sr_no || '-'}</strong></td>
+                    <td style="text-align: center;"><strong>${displaySrNo++}</strong></td>
                     <td>${formattedDate}</td>
                     <td>${description}</td>
                     <td style="color:#c0392b; font-weight:bold;">
-                        ${debitAmount.toLocaleString('en-PK', { minimumFractionDigits: 2 })}
+                        ${debitAmount > 0 ? debitAmount.toLocaleString('en-PK', { minimumFractionDigits: 2 }) : '-'}
                     </td>
                     <td style="color:#27ae60; font-weight:bold;">
-                        ${creditAmount.toLocaleString('en-PK', { minimumFractionDigits: 2 })}
+                        ${creditAmount > 0 ? creditAmount.toLocaleString('en-PK', { minimumFractionDigits: 2 }) : '-'}
                     </td>
-                    <td style="color:${totalColor}; font-weight:bold; text-align:right;">
-                        ${totalDifference.toLocaleString('en-PK', { minimumFractionDigits: 2 })}
+                    <td style="color:${balanceColor}; font-weight:bold; text-align:right;">
+                        ${balanceText}
                     </td>
                 `;
                 tbody.appendChild(tr);
             });
+
+            // Agar sari entries skip ho jayein aur koi valid row na bache
+            if (tbody.children.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="color:#7f8c8d; text-align:center; padding: 20px;">Koi Debit ya Credit ki entry majood nahi hai.</td></tr>';
+            }
         }
     </script>
 </body>
