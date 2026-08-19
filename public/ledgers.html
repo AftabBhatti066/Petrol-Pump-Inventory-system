@@ -221,11 +221,11 @@
         </table>
 
         <!-- Summary Bar -->
-        <div class="summary-bar" style="display: flex; justify-content: space-around; font-weight: bold; background: #f8f9fa; padding: 12px; border: 1px solid #ddd; margin-top: 15px;">
+        <!-- <div class="summary-bar" style="display: flex; justify-content: space-around; font-weight: bold; background: #f8f9fa; padding: 12px; border: 1px solid #ddd; margin-top: 15px;">
             <div>Total Debit (Udhaar): <span id="totalDebitAmount" style="color:#c0392b;">0.00 PKR</span></div>
             <div>Total Credit (Vasooli): <span id="totalCreditVasooli" style="color:#27ae60;">0.00 PKR</span></div>
             <div>Net Balance: <span id="netBalanceAmount" style="color:#2980b9;">0.00 PKR</span></div>
-        </div>
+        </div> -->
     </div>
 
     <script>
@@ -277,7 +277,7 @@
                     const history = data.history || [];
                     const openingBalance = parseFloat(data.opening_balance || 0);
 
-                    // Render table with calculated running cumulative balance & Dr/Cr tag
+                    // Render table with cumulative running balance logic
                     renderLedgerTable(history, openingBalance);
 
                     // Top Customer Name fetch & set
@@ -384,23 +384,28 @@
                 }
 
                 // --- CUMULATIVE RUNNING BALANCE CALCULATION ---
+                // Debit adds to balance, Credit subtracts from balance
                 runningBalance = runningBalance + debitAmount - creditAmount;
 
-                // Precision Rounding to avoid 0.0000001 JS Math bugs
-                const roundedBalance = Math.round(Math.abs(runningBalance) * 100) / 100;
+                // Precision Rounding
+                const roundedAbsBalance = Math.round(Math.abs(runningBalance) * 100) / 100;
 
-                // --- DIRECT TRANSACTION ENTRY BASE Dr / Cr TAGGING ---
+                // --- ACCOUNTING LOGIC FOR RUNNING BALANCE TAG ---
                 let balanceText = '';
                 let balanceColor = '#333';
 
-                if (debitAmount > 0) {
-                    // Agar entry DEBIT (Udhaar) ki hai -> Show Dr
-                    balanceText = `${roundedBalance.toLocaleString('en-PK', { minimumFractionDigits: 2 })} Dr`;
-                    balanceColor = '#c0392b'; // Red for Debit (Udhaar)
-                } else if (creditAmount > 0) {
-                    // Agar entry CREDIT (Vasooli) ki hai -> Show Cr
-                    balanceText = `${roundedBalance.toLocaleString('en-PK', { minimumFractionDigits: 2 })} Cr`;
-                    balanceColor = '#27ae60'; // Green for Credit (Vasooli)
+                if (runningBalance > 0) {
+                    // Overall Udhaar ziada hai -> Dr
+                    balanceText = `${roundedAbsBalance.toLocaleString('en-PK', { minimumFractionDigits: 2 })} Dr`;
+                    balanceColor = '#c0392b'; // Red
+                } else if (runningBalance < 0) {
+                    // Overall Advance/Vasooli ziada hai -> Cr
+                    balanceText = `${roundedAbsBalance.toLocaleString('en-PK', { minimumFractionDigits: 2 })} Cr`;
+                    balanceColor = '#27ae60'; // Green
+                } else {
+                    // Zero balance
+                    balanceText = `0.00 Cleared`;
+                    balanceColor = '#2980b9'; // Blue
                 }
 
                 const tr = document.createElement('tr');
@@ -421,7 +426,6 @@
                 tbody.appendChild(tr);
             });
 
-            // Agar sari entries skip ho jayein aur koi valid row na bache
             if (tbody.children.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="6" style="color:#7f8c8d; text-align:center; padding: 20px;">Koi Debit ya Credit ki entry majood nahi hai.</td></tr>';
             }
