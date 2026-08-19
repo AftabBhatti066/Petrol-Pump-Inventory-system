@@ -298,16 +298,16 @@
                     updateSummaryElement('totalDebitAmount', `${(data.total_debit || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`);
                     updateSummaryElement('totalCreditVasooli', `${(data.total_credit_vasooli || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`);
                     
-                    // Net Balance calculation with DEBIT (Dr) / CREDIT (Cr) / CLEARED Status
+                    // Net Balance calculation with Full DEBIT / CREDIT / CLEARED Status
                     const netBal = Math.round(parseFloat(data.net_balance || 0) * 100) / 100;
                     let netText = "";
                     let netColor = "#2980b9";
 
                     if (netBal > 0) {
-                        netText = `${netBal.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR (Db)`;
+                        netText = `${netBal.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR (Debit)`;
                         netColor = "#c0392b"; // Debit / Udhaar
                     } else if (netBal < 0) {
-                        netText = `${Math.abs(netBal).toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR (Cr)`;
+                        netText = `${Math.abs(netBal).toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR (Credit)`;
                         netColor = "#27ae60"; // Credit / Vasooli
                     } else {
                         netText = `0.00 PKR (Cleared)`;
@@ -366,7 +366,6 @@
                 }
 
                 // --- ZERO AMOUNT FILTER CHECK ---
-                // Agar Debit aur Credit dono zero (0) hain toh ye entry skip ho jayegi
                 if (debitAmount === 0 && creditAmount === 0) {
                     return;
                 }
