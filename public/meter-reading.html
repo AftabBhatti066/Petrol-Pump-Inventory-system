@@ -7,7 +7,6 @@
     <title>Bhatti Petroleum, BHOBRA - [Daily Management Dashboard]</title>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" type="image/png" href="/logo.png">
-
 </head>
 
 <body>
@@ -20,7 +19,7 @@
     </div>
 
     <div class="tabs-container">
-       <a href="dashboard.html" class="tab-item">📊 Dashboard</a>
+        <a href="dashboard.html" class="tab-item">📊 Dashboard</a>
         <a href="meter-reading.html" class="tab-item">⛽ Meter Reading</a>
         <a href="daily-sheet.html" class="tab-item">📝 Daily Sheet</a>
 
@@ -33,7 +32,7 @@
     <div class="action-bar">
         <button class="btn-save" onclick="saveAllReadings()">💾 Save & Close Day</button>
         <button class="btn-reset" onclick="loadCurrentStatusFromDB()">🔄 Refresh Screen</button>
-        <div><strong>Working Date:</strong> <input type="date" id="working_date" value="2026-06-23"></div>
+        <div><strong>Working Date:</strong> <input type="date" id="working_date" value="2026-08-19"></div>
         <div class="info-tag" id="syncStatus">🔄 Syncing with DB...</div>
     </div>
 
@@ -66,18 +65,12 @@
                 </tr>
                 <tr>
                     <td class="row-desc">Closing Meter (Ltr)</td>
-                    <td><input type="number" id="close_diesel_n1" class="matrix-input" oninput="calculateLiveSales()"
-                            placeholder="0"></td>
-                    <td><input type="number" id="close_diesel_n2" class="matrix-input" oninput="calculateLiveSales()"
-                            placeholder="0"></td>
-                    <td><input type="number" id="close_diesel_n3" class="matrix-input" oninput="calculateLiveSales()"
-                            placeholder="0"></td>
-                    <td><input type="number" id="close_diesel_n4" class="matrix-input" oninput="calculateLiveSales()"
-                            placeholder="0"></td>
-                    <td><input type="number" id="close_super_n1" class="matrix-input" oninput="calculateLiveSales()"
-                            placeholder="0"></td>
-                    <td><input type="number" id="close_super_n2" class="matrix-input" oninput="calculateLiveSales()"
-                            placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_diesel_n1" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_diesel_n2" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_diesel_n3" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_diesel_n4" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_super_n1" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_super_n2" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
                 </tr>
                 <tr style="background-color: #eaeded;">
                     <td class="row-desc">Calculated Sales (Ltr)</td>
@@ -112,11 +105,14 @@
                     <td><span id="stock_open_super" class="val-blue">0.00</span></td>
                 </tr>
                 <tr>
-                    <td class="row-desc">New Supply Receipt (+)</td>
-                    <td><input type="number" id="receipt_diesel" class="matrix-input" value="0"
-                            oninput="calculateLiveSales()"></td>
-                    <td><input type="number" id="receipt_super" class="matrix-input" value="0"
-                            oninput="calculateLiveSales()"></td>
+                    <td class="row-desc">New Supply Receipt (+) [Ltr]</td>
+                    <td><input type="number" step="any" id="receipt_diesel" class="matrix-input" value="0" oninput="onReceiptLitersChanged('diesel')"></td>
+                    <td><input type="number" step="any" id="receipt_super" class="matrix-input" value="0" oninput="onReceiptLitersChanged('super')"></td>
+                </tr>
+                <tr style="background-color: #e8f8f5;">
+                    <td class="row-desc"><strong>Total Stock Receipt Amount (Rs.)</strong></td>
+                    <td><input type="number" step="any" id="amount_diesel" class="matrix-input" style="font-weight:bold; color:#27ae60;" value="0.00" oninput="calculateLiveSales()" placeholder="0.00"></td>
+                    <td><input type="number" step="any" id="amount_super" class="matrix-input" style="font-weight:bold; color:#27ae60;" value="0.00" oninput="calculateLiveSales()" placeholder="0.00"></td>
                 </tr>
                 <tr style="background-color: #eaeded;">
                     <td class="row-desc">Sales Deductions (-)</td>
@@ -162,12 +158,9 @@
 
         let tankOpeningStock = { 'Diesel': 0, 'Super': 0 };
         let lubricantOpeningStock = {};
-
-        const lubricantItemsList = [
-            'T 2 20Ltrs', 'Balize .75', 'Balize 1Ltrs', 'Cariant 3Ltrs',
-            'Cariant 4ltrs', 'Deo 6000 4Ltrs', 'Deo 6000 10Ltrs',
-            'Deo 8000 4Ltrs', 'Deo 8000 10Ltrs'
-        ];
+        
+        // Internal rates store karne ke liye variables
+        let dbRates = { 'diesel': 0, 'super': 0 };
 
         function getTodayDateString() {
             const today = new Date();
@@ -192,8 +185,10 @@
                     return;
                 }
 
+                const workingDate = document.getElementById('working_date')?.value || getTodayDateString();
+
                 // A. Nozzle readings load
-                const response = await fetch(`${API_URL}/all?userId=${userId}`);
+                const response = await fetch(`${API_URL}/all?userId=${userId}&date=${workingDate}`);
                 const result = await response.json();
                 if (result.status === "Success" && result.data) {
                     const records = result.data;
@@ -206,7 +201,7 @@
                 }
 
                 // B. Fuel Tank stock load
-                const stockResponse = await fetch(`${API_URL}/tank-stock?userId=${userId}`);
+                const stockResponse = await fetch(`${API_URL}/tank-stock?userId=${userId}&date=${workingDate}`);
                 const stockResult = await stockResponse.json();
 
                 tankOpeningStock['Diesel'] = 0;
@@ -225,8 +220,27 @@
                 if (openDieselEl) openDieselEl.textContent = tankOpeningStock['Diesel'].toFixed(2);
                 if (openSuperEl) openSuperEl.textContent = tankOpeningStock['Super'].toFixed(2);
 
-                // C. Mobil Oil Lubricant Stock Load
-                const lubResponse = await fetch(`${API_URL}/lubricant-stock?userId=${userId}`);
+                // C. Fetch Rates silently from DB
+                try {
+                    const ratesResponse = await fetch(`/api/rates?userId=${userId}`);
+                    const ratesResult = await ratesResponse.json();
+                    if (ratesResult.status === "Success" && ratesResult.data) {
+                        ratesResult.data.forEach(rate => {
+                            const pType = rate.product_type ? rate.product_type.toLowerCase() : '';
+                            const rateVal = parseFloat(rate.purchase_price) || parseFloat(rate.sale_price) || 0;
+                            if (pType === 'diesel') {
+                                dbRates['diesel'] = rateVal;
+                            } else if (pType === 'super') {
+                                dbRates['super'] = rateVal;
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.log("Could not auto-fetch fuel rates", e);
+                }
+
+                // D. Mobil Oil Lubricant Stock Load
+                const lubResponse = await fetch(`${API_URL}/lubricant-stock?userId=${userId}&date=${workingDate}`);
                 const lubResult = await lubResponse.json();
 
                 const tbody = document.getElementById('lubricantBody');
@@ -258,11 +272,6 @@
                     statusTag.style.color = "#27ae60";
                 }
 
-                const recDieselEl = document.getElementById('receipt_diesel');
-                const recSuperEl = document.getElementById('receipt_super');
-                if (recDieselEl) recDieselEl.value = "0";
-                if (recSuperEl) recSuperEl.value = "0";
-
                 calculateLiveSales();
 
             } catch (error) {
@@ -282,21 +291,42 @@
             if (el) el.textContent = openingValues[nozzleName].toFixed(2);
         }
 
+        // Jab user New Supply Receipt (Ltr) mein value likhe ga to Amount auto-calculate hogi
+        function onReceiptLitersChanged(type) {
+            if (type === 'diesel') {
+                const recDiesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
+                if (recDiesel > 0 && dbRates['diesel'] > 0) {
+                    document.getElementById('amount_diesel').value = (recDiesel * dbRates['diesel']).toFixed(2);
+                }
+            } else if (type === 'super') {
+                const recSuper = parseFloat(document.getElementById('receipt_super')?.value) || 0;
+                if (recSuper > 0 && dbRates['super'] > 0) {
+                    document.getElementById('amount_super').value = (recSuper * dbRates['super']).toFixed(2);
+                }
+            }
+            calculateLiveSales();
+        }
+
+        // Live Dynamic Calculator Function
         function calculateLiveSales() {
-            const c_dn1 = parseFloat(document.getElementById('close_diesel_n1')?.value) || openingValues['Diesel (N1)'] || 0;
-            const c_dn2 = parseFloat(document.getElementById('close_diesel_n2')?.value) || openingValues['Diesel (N2)'] || 0;
-            const c_dn3 = parseFloat(document.getElementById('close_diesel_n3')?.value) || openingValues['Diesel (N3)'] || 0;
-            const c_dn4 = parseFloat(document.getElementById('close_diesel_n4')?.value) || openingValues['Diesel (N4)'] || 0;
-            const c_sn1 = parseFloat(document.getElementById('close_super_n1')?.value) || openingValues['Super (N1)'] || 0;
-            const c_sn2 = parseFloat(document.getElementById('close_super_n2')?.value) || openingValues['Super (N2)'] || 0;
+            // Get Closing Nozzle Readings
+            const close_dn1_val = document.getElementById('close_diesel_n1')?.value;
+            const close_dn2_val = document.getElementById('close_diesel_n2')?.value;
+            const close_dn3_val = document.getElementById('close_diesel_n3')?.value;
+            const close_dn4_val = document.getElementById('close_diesel_n4')?.value;
+            const close_sn1_val = document.getElementById('close_super_n1')?.value;
+            const close_sn2_val = document.getElementById('close_super_n2')?.value;
 
-            const sales_dn1 = Math.max(0, c_dn1 - (openingValues['Diesel (N1)'] || 0));
-            const sales_dn2 = Math.max(0, c_dn2 - (openingValues['Diesel (N2)'] || 0));
-            const sales_dn3 = Math.max(0, c_dn3 - (openingValues['Diesel (N3)'] || 0));
-            const sales_dn4 = Math.max(0, c_dn4 - (openingValues['Diesel (N4)'] || 0));
-            const sales_sn1 = Math.max(0, c_sn1 - (openingValues['Super (N1)'] || 0));
-            const sales_sn2 = Math.max(0, c_sn2 - (openingValues['Super (N2)'] || 0));
+            // Compute sales per nozzle
+            const sales_dn1 = (close_dn1_val !== "" && close_dn1_val !== undefined) ? Math.max(0, parseFloat(close_dn1_val) - (openingValues['Diesel (N1)'] || 0)) : 0;
+            const sales_dn2 = (close_dn2_val !== "" && close_dn2_val !== undefined) ? Math.max(0, parseFloat(close_dn2_val) - (openingValues['Diesel (N2)'] || 0)) : 0;
+            const sales_dn3 = (close_dn3_val !== "" && close_dn3_val !== undefined) ? Math.max(0, parseFloat(close_dn3_val) - (openingValues['Diesel (N3)'] || 0)) : 0;
+            const sales_dn4 = (close_dn4_val !== "" && close_dn4_val !== undefined) ? Math.max(0, parseFloat(close_dn4_val) - (openingValues['Diesel (N4)'] || 0)) : 0;
 
+            const sales_sn1 = (close_sn1_val !== "" && close_sn1_val !== undefined) ? Math.max(0, parseFloat(close_sn1_val) - (openingValues['Super (N1)'] || 0)) : 0;
+            const sales_sn2 = (close_sn2_val !== "" && close_sn2_val !== undefined) ? Math.max(0, parseFloat(close_sn2_val) - (openingValues['Super (N2)'] || 0)) : 0;
+
+            // Render Nozzle Sales
             if (document.getElementById('sales_diesel_n1')) document.getElementById('sales_diesel_n1').textContent = sales_dn1.toFixed(2);
             if (document.getElementById('sales_diesel_n2')) document.getElementById('sales_diesel_n2').textContent = sales_dn2.toFixed(2);
             if (document.getElementById('sales_diesel_n3')) document.getElementById('sales_diesel_n3').textContent = sales_dn3.toFixed(2);
@@ -310,13 +340,18 @@
             if (document.getElementById('stock_deduct_diesel')) document.getElementById('stock_deduct_diesel').textContent = total_diesel_sales.toFixed(2);
             if (document.getElementById('stock_deduct_super')) document.getElementById('stock_deduct_super').textContent = total_super_sales.toFixed(2);
 
+            // Fetch Tank New Receipts
             const rec_diesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
             const rec_super = parseFloat(document.getElementById('receipt_super')?.value) || 0;
 
-            if (document.getElementById('stock_close_diesel')) document.getElementById('stock_close_diesel').textContent = ((tankOpeningStock['Diesel'] || 0) + rec_diesel - total_diesel_sales).toFixed(2);
-            if (document.getElementById('stock_close_super')) document.getElementById('stock_close_super').textContent = ((tankOpeningStock['Super'] || 0) + rec_super - total_super_sales).toFixed(2);
+            // Closing Stock = Opening + Receipt - Sales
+            const closing_diesel_tank = (tankOpeningStock['Diesel'] || 0) + rec_diesel - total_diesel_sales;
+            const closing_super_tank = (tankOpeningStock['Super'] || 0) + rec_super - total_super_sales;
 
-            // 🔥 Safe Mobil Oil calculations
+            if (document.getElementById('stock_close_diesel')) document.getElementById('stock_close_diesel').textContent = closing_diesel_tank.toFixed(2);
+            if (document.getElementById('stock_close_super')) document.getElementById('stock_close_super').textContent = closing_super_tank.toFixed(2);
+
+            // Mobil Oil calculations
             const tbody = document.getElementById('lubricantBody');
             if (tbody) {
                 const rows = tbody.getElementsByTagName('tr');
@@ -348,27 +383,55 @@
             const userId = localStorage.getItem('userId');
             if (!userId) {
                 alert("Session expired! Dobara login karein.");
+                window.location.href = 'login.html';
                 return;
             }
 
             try {
-                // 1. Fuel Tank Receipts Update
+                // 1. Fuel Tank Receipts Update (Calculates rate dynamically before saving)
                 const recDiesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
                 const recSuper = parseFloat(document.getElementById('receipt_super')?.value) || 0;
+                
+                const amountDiesel = parseFloat(document.getElementById('amount_diesel')?.value) || 0;
+                const amountSuper = parseFloat(document.getElementById('amount_super')?.value) || 0;
+
+                const calculatedRateDiesel = recDiesel > 0 ? (amountDiesel / recDiesel) : 0;
+                const calculatedRateSuper = recSuper > 0 ? (amountSuper / recSuper) : 0;
+
+                const tankReceiptPromises = [];
                 if (recDiesel > 0) {
-                    await fetch(`${API_URL}/update-receipt`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ fuel_type: 'Diesel', receipt_liters: recDiesel, userId: userId })
-                    });
+                    tankReceiptPromises.push(
+                        fetch(`${API_URL}/update-receipt`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                                fuel_type: 'Diesel', 
+                                receipt_liters: recDiesel, 
+                                total_amount: amountDiesel,
+                                rate: calculatedRateDiesel,
+                                userId: userId, 
+                                reading_date: dateInput 
+                            })
+                        })
+                    );
                 }
                 if (recSuper > 0) {
-                    await fetch(`${API_URL}/update-receipt`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ fuel_type: 'Super', receipt_liters: recSuper, userId: userId })
-                    });
+                    tankReceiptPromises.push(
+                        fetch(`${API_URL}/update-receipt`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                                fuel_type: 'Super', 
+                                receipt_liters: recSuper, 
+                                total_amount: amountSuper,
+                                rate: calculatedRateSuper,
+                                userId: userId, 
+                                reading_date: dateInput 
+                            })
+                        })
+                    );
                 }
+                await Promise.all(tankReceiptPromises);
 
                 // 2. Fuel Nozzles Update
                 const nozzleConfigs = [
@@ -380,33 +443,35 @@
                     { name: 'Super (N2)', type: 'Super', inputId: 'close_super_n2' }
                 ];
 
+                const nozzlePromises = [];
                 for (const target of nozzleConfigs) {
                     const inputEl = document.getElementById(target.inputId);
                     const rawValue = inputEl ? inputEl.value : "";
                     if (rawValue && rawValue.trim() !== "") {
-                        await fetch(`${API_URL}/add`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                nozzle_name: target.name,
-                                fuel_type: target.type,
-                                closing_reading: parseFloat(rawValue),
-                                reading_date: dateInput,
-                                userId: userId
+                        nozzlePromises.push(
+                            fetch(`${API_URL}/add`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    nozzle_name: target.name,
+                                    fuel_type: target.type,
+                                    closing_reading: parseFloat(rawValue),
+                                    reading_date: dateInput,
+                                    userId: userId
+                                })
                             })
-                        });
-                        await new Promise(res => setTimeout(res, 60));
+                        );
                     }
                 }
+                await Promise.all(nozzlePromises);
 
-                // 3. Mobil Oil Batch Process Packager (Safe Layout Check)
+                // 3. Mobil Oil Batch Process Packager
                 const lubSales = [];
                 const lubReceipts = [];
                 const tbody = document.getElementById('lubricantBody');
 
                 if (tbody) {
                     const rows = tbody.getElementsByTagName('tr');
-                    // Check karein ke sach mein user ki valid items rows mojud hain ya nahi
                     if (rows.length > 0 && rows[0].getElementsByClassName('row-desc').length > 0) {
                         for (let i = 0; i < rows.length; i++) {
                             const descEl = rows[i].getElementsByClassName('row-desc')[0];
@@ -416,21 +481,21 @@
                             const recVal = parseInt(document.getElementById(`lub_rec_${i}`)?.value) || 0;
                             const saleVal = parseInt(document.getElementById(`lub_sale_${i}`)?.value) || 0;
 
-                            lubSales.push({ name: name, qty: saleVal });
-                            lubReceipts.push({ name: name, qty: recVal });
+                            if (saleVal > 0) lubSales.push({ name: name, qty: saleVal });
+                            if (recVal > 0) lubReceipts.push({ name: name, qty: recVal });
                         }
                     }
                 }
 
-                // Sirf tab call karein jab array mein sach mein items pack ho chukay hon
                 if (lubSales.length > 0 || lubReceipts.length > 0) {
                     await fetch(`${API_URL}/update-lubricants`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ lubricant_sales: lubSales, lubricant_receipts: lubReceipts, userId: userId })
+                        body: JSON.stringify({ lubricant_sales: lubSales, lubricant_receipts: lubReceipts, userId: userId, reading_date: dateInput })
                     });
                 }
 
+                // Reset inputs
                 nozzleConfigs.forEach(t => {
                     const el = document.getElementById(t.inputId);
                     if (el) el.value = "";
@@ -438,9 +503,7 @@
 
                 alert("🎉 Shift Closed! Fuel metrics aur Mobil Oil Inventory sab data automatic safe synchronised update ho gaya hai.");
 
-                setTimeout(async () => {
-                    await loadCurrentStatusFromDB();
-                }, 500);
+                await loadCurrentStatusFromDB();
 
             } catch (err) {
                 console.error("Save process broke down:", err);
@@ -458,20 +521,10 @@
             loadCurrentStatusFromDB();
         });
 
-
-
         document.getElementById('logoutBtn').addEventListener('click', () => {
-            // 1. LocalStorage se user ka data clear karen
-            localStorage.removeItem('user_id');
+            localStorage.removeItem('userId');
             localStorage.removeItem('username');
-
-            // Agar aap ne koi token ya extra data save kiya tha, toh poori storage bhi clear kar sakte hain:
-            // localStorage.clear();
-
-            // 2. Alert message (Optional)
             alert("Aap successfully logout ho chuke hain!");
-
-            // 3. Wapas Login page par redirect karen
             window.location.href = 'login.html';
         });
     </script>

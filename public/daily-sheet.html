@@ -29,15 +29,20 @@
     </div>
 
     <div class="meta-header">
-        <div><strong>Date:</strong> <input type="date" id="working_date" onchange="loadSheetByDate()"></div>
+        <div>
+            <strong>Date:</strong>
+            <input type="text" id="working_date" placeholder="DD/MM/YYYY" onchange="loadSheetByDate()"
+                style="font-family: monospace; font-size: 14px; padding: 4px 8px; width: 130px; text-align: center; font-weight: bold;">
+        </div>
     </div>
 
     <div class="section-header-box">
-        <span>Daily Sheet (Active Entries Only Mode)</span>
+        <span>Daily Sheet (Amount-Based Entries Only)</span>
         <span style="font-weight: normal; font-size: 12px;">Status: Realtime Dynamic Triggers Fixed</span>
     </div>
 
-    <div class="control-panel" style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+    <div class="control-panel"
+        style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
         <div class="add-cust-group">
             <span style="color: #6c3483; font-weight: bold;">+ New Cust:</span>
             <input type="text" id="new_cust_name" placeholder="Name" style="width: 180px;">
@@ -45,13 +50,23 @@
             <button class="btn-add" onclick="addNewCustomer()">Add Master Cust</button>
         </div>
 
-        <!-- SEARCH FILTER BAR -->
-        <div class="search-filter-group" style="display: flex; align-items: center; gap: 5px;">
+        <!-- LIVE MASTER SEARCH FILTER BAR -->
+        <div class="search-filter-group" style="position: relative; display: flex; align-items: center; gap: 5px;">
             <span style="font-weight: bold; color: #1f618d;">🔍 Filter Entries:</span>
-            <input type="text" id="sheet_search_filter" placeholder="Search by ID or Name..." oninput="filterSheetTable()" style="width: 220px; padding: 5px; border: 1px solid #ccc; border-radius: 4px;">
+            <div style="position: relative; width: 230px;">
+                <input type="text" id="sheet_search_filter" placeholder="Search by ID or Name..."
+                    oninput="handleGlobalMasterSearch(this.value)" autocomplete="off"
+                    style="width: 100%; padding: 5px; border: 1px solid #ccc; border-radius: 4px;">
+                
+                <!-- Dynamic Master Customer Dropdown -->
+                <div id="masterSearchDropdown" 
+                     style="display: none; position: absolute; top: 100%; left: 0; right: 0; 
+                            background: #ffffff; border: 1px solid #2980b9; border-radius: 4px; 
+                            max-height: 220px; overflow-y: auto; z-index: 1000; box-shadow: 0px 4px 10px rgba(0,0,0,0.15); margin-top: 2px;">
+                </div>
+            </div>
         </div>
 
-        <button class="btn-save-sheet" onclick="saveAllSheetEntries()">💾 Save Daily Sheet</button>
     </div>
 
     <table class="sheet-table">
@@ -68,7 +83,7 @@
         <tbody id="sheetTableBody">
         </tbody>
     </table>
-
+    <button class="btn-save-sheet" onclick="saveAllSheetEntries()">💾 Save Daily Sheet</button>
     <div class="summary-bar">
         <div>
             <span>Total Debit: <span id="lbl_total_debit" style="color: #c0392b;">0</span></span>
@@ -76,163 +91,188 @@
                     style="color: #1f618d;">0</span></span>
         </div>
         <div class="net-income">
-            Net Cash Income: <span id="lbl_net_income">0</span> PKR
+            Net Cash Income: <span id="lbl_net_income">0</span> 
         </div>
     </div>
 
-   <script>
-    const API_URL = '/api/daily-sheet';
-    let customerMap = {};
+    <script>
+        const API_URL = '/api/daily-sheet';
+        let customerMap = {};
 
-    // Opening Cumulative Debit & Credit values from previous days
-    let globalOpeningDebit = 0;
-    let globalOpeningCredit = 0;
+        let globalOpeningDebit = 0;
+        let globalOpeningCredit = 0;
 
-    function getTodayDateString() {
-        const today = new Date();
-        const year = today.getFullYear();
-        const month = String(today.getMonth() + 1).padStart(2, '0');
-        const day = String(today.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    }
+        // --- DATE CONVERSION UTILITIES ---
+        function getTodayDDMMYYYY() {
+            const today = new Date();
+            const day = String(today.getDate()).padStart(2, '0');
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const year = today.getFullYear();
+            return `${day}-${month}-${year}`;
+        }
 
-    async function loadCustomerMasterMap() {
-        const userId = localStorage.getItem('userId');
-        if (!userId) return;
+        function parseDDMMYYYYtoISO(dateStr) {
+            if (!dateStr) return '';
+            const parts = dateStr.includes('-') ? dateStr.split('-') : dateStr.split('/');
+            if (parts.length === 3) {
+                const day = parts[0].padStart(2, '0');
+                const month = parts[1].padStart(2, '0');
+                const year = parts[2];
+                return `${year}-${month}-${day}`;
+            }
+            return dateStr;
+        }
 
-        customerMap = {};
+        function reindexSerialNumbers() {
+            const rows = document.querySelectorAll('#sheetTableBody tr');
+            let index = 1;
+            rows.forEach(tr => {
+                const srCell = tr.querySelector('.serial-no');
+                if (srCell) {
+                    srCell.textContent = index;
+                    index++;
+                }
+            });
+        }
 
-        try {
-            const res = await fetch(`/api/daily-sheet/customers?userId=${userId}`);
-            if (res.ok) {
-                const result = await res.json();
-                const customers = result.data || result.customers || [];
+        async function loadCustomerMasterMap() {
+            const userId = localStorage.getItem('userId');
+            if (!userId) return;
 
-                if (Array.isArray(customers)) {
-                    customers.forEach(c => {
-                        const sId = c.search_id || c.searchId || '';
-                        const cName = c.customer_name || c.name || '';
-                        if (sId) {
-                            customerMap[String(sId).trim().toLowerCase()] = String(cName).trim();
+            customerMap = {};
+
+            try {
+                const res = await fetch(`/api/daily-sheet/customers?userId=${userId}`);
+                if (res.ok) {
+                    const result = await res.json();
+                    const customers = result.data || result.customers || [];
+
+                    if (Array.isArray(customers)) {
+                        customers.forEach(c => {
+                            const sId = c.search_id || c.searchId || '';
+                            const cName = c.customer_name || c.name || '';
+                            if (sId) {
+                                customerMap[String(sId).trim().toLowerCase()] = String(cName).trim();
+                            }
+                        });
+                    }
+                }
+            } catch (err) {
+                console.warn("Failed to fetch customer map:", err);
+            }
+        }
+
+        async function loadSheetByDate() {
+            const dateInput = document.getElementById('working_date');
+            if (!dateInput || !dateInput.value) return;
+
+            const rawDateVal = dateInput.value.trim();
+            const formattedISO = parseDDMMYYYYtoISO(rawDateVal);
+
+            const userId = localStorage.getItem('userId');
+            if (!userId) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            await loadCustomerMasterMap();
+
+            try {
+                const response = await fetch(`${API_URL}/view/${formattedISO}?userId=${userId}`);
+                const result = await response.json();
+
+                let entriesData = result.entries || result.data || (Array.isArray(result) ? result : []);
+
+                if ((result.status === "Success" || response.ok) && Array.isArray(entriesData)) {
+                    entriesData.forEach(entry => {
+                        if (entry.search_id && entry.customer_name) {
+                            const cleanId = String(entry.search_id).trim().toLowerCase();
+                            customerMap[cleanId] = String(entry.customer_name).trim();
                         }
                     });
+
+                    globalOpeningDebit = parseFloat(result.opening_debit) || 0;
+                    globalOpeningCredit = parseFloat(result.opening_credit) || 0;
+
+                    const activeEntries = entriesData.filter(entry => {
+                        const debit = parseFloat(entry.debit_udhaar) || 0;
+                        const credit = parseFloat(entry.credit_vasooli) || 0;
+                        return debit > 0 || credit > 0;
+                    });
+
+                    activeEntries.sort((a, b) => {
+                        const srA = a.sheet_sr_no || a.sr_no;
+                        const srB = b.sheet_sr_no || b.sr_no;
+                        if (srA && srB) return srA - srB;
+
+                        const timeA = a.created_at ? new Date(a.created_at).getTime() : (a.id || 0);
+                        const timeB = b.created_at ? new Date(b.created_at).getTime() : (b.id || 0);
+                        return timeA - timeB;
+                    });
+
+                    renderTableRows(activeEntries);
+
+                    const opening = parseFloat(result.opening_balance) || 0;
+                    const closing = parseFloat(result.closing_balance) || 0;
+                    updateOpeningAndClosingUI(opening, closing);
+
+                } else {
+                    globalOpeningDebit = 0;
+                    globalOpeningCredit = 0;
+                    renderTableRows([]);
+                    updateOpeningAndClosingUI(0, 0);
                 }
-            }
-        } catch (err) {
-            console.warn("Failed to fetch customer map:", err);
-        }
-    }
-
-    async function loadSheetByDate() {
-        const dateInput = document.getElementById('working_date');
-        if (!dateInput || !dateInput.value) return;
-
-        const currentDate = dateInput.value;
-        const userId = localStorage.getItem('userId');
-        if (!userId) {
-            window.location.href = 'login.html';
-            return;
-        }
-
-        await loadCustomerMasterMap();
-
-        try {
-            const response = await fetch(`${API_URL}/view/${currentDate}?userId=${userId}`);
-            const result = await response.json();
-
-            let entriesData = result.entries || result.data || (Array.isArray(result) ? result : []);
-
-            if ((result.status === "Success" || response.ok) && Array.isArray(entriesData)) {
-                entriesData.forEach(entry => {
-                    if (entry.search_id && entry.customer_name) {
-                        const cleanId = String(entry.search_id).trim().toLowerCase();
-                        customerMap[cleanId] = String(entry.customer_name).trim();
-                    }
-                });
-
-                // Match Backend Response keys for Cumulative Opening Totals
-                globalOpeningDebit = parseFloat(result.opening_debit) || 0;
-                globalOpeningCredit = parseFloat(result.opening_credit) || 0;
-
-                // Filter out non-used rows
-                const activeEntries = entriesData.filter(entry => {
-                    const debit = parseFloat(entry.debit_udhaar) || 0;
-                    const credit = parseFloat(entry.credit_vasooli) || 0;
-                    const desc = entry.description ? String(entry.description).trim() : '';
-                    return debit > 0 || credit > 0 || desc.length > 0;
-                });
-
-                // --- CHRONOLOGICAL SORTING (OLDEST FIRST -> NEWEST AT LAST/BOTTOM) ---
-                activeEntries.sort((a, b) => {
-                    const timeA = a.created_at ? new Date(a.created_at).getTime() : (a.id || 0);
-                    const timeB = b.created_at ? new Date(b.created_at).getTime() : (b.id || 0);
-                    return timeA - timeB; // Ascending Order (Newest at Last)
-                });
-
-                renderTableRows(activeEntries);
-
-                const opening = parseFloat(result.opening_balance) || 0;
-                const closing = parseFloat(result.closing_balance) || 0;
-                updateOpeningAndClosingUI(opening, closing);
-
-            } else {
+            } catch (err) {
+                console.error("Sheet load error:", err);
                 globalOpeningDebit = 0;
                 globalOpeningCredit = 0;
                 renderTableRows([]);
                 updateOpeningAndClosingUI(0, 0);
             }
-        } catch (err) {
-            console.error("Sheet load error:", err);
-            globalOpeningDebit = 0;
-            globalOpeningCredit = 0;
-            renderTableRows([]);
-            updateOpeningAndClosingUI(0, 0);
         }
-    }
 
-    function renderTableRows(entries) {
-        const tbody = document.getElementById('sheetTableBody');
-        tbody.innerHTML = "";
+        function renderTableRows(entries) {
+            const tbody = document.getElementById('sheetTableBody');
+            tbody.innerHTML = "";
 
-        if (!entries || entries.length === 0) {
+            if (!entries || entries.length === 0) {
+                addNewEmptyRow(false);
+                recalculateTotals();
+                return;
+            }
+
+            entries.forEach((row, index) => {
+                appendRowToTable(row, row.sheet_sr_no || row.sr_no || (index + 1), false);
+            });
+
             addNewEmptyRow(false);
+            reindexSerialNumbers();
             recalculateTotals();
-            return;
+
+            const filterInput = document.getElementById('sheet_search_filter');
+            if (filterInput) filterInput.value = '';
         }
 
-        entries.forEach((row, index) => {
-            appendRowToTable(row, index + 1, false);
-        });
+        function appendRowToTable(data = {}, srNo = 1, shouldFocus = false) {
+            const tbody = document.getElementById('sheetTableBody');
+            const tr = document.createElement('tr');
 
-        addNewEmptyRow(false);
-        recalculateTotals();
-        
-        // Clear search filter input when re-rendering
-        const filterInput = document.getElementById('sheet_search_filter');
-        if (filterInput) filterInput.value = '';
-    }
+            const searchIdVal = data.search_id ? String(data.search_id).trim() : '';
+            const searchIdKey = searchIdVal.toLowerCase();
 
-    function appendRowToTable(data = {}, srNo = 1, shouldFocus = false) {
-        const tbody = document.getElementById('sheetTableBody');
-        const tr = document.createElement('tr');
+            if (data.id) {
+                tr.setAttribute('data-id', data.id);
+                tr.setAttribute('data-db-id', data.id);
+            }
+            if (data.created_at) tr.setAttribute('data-created-at', data.created_at);
+            tr.setAttribute('data-search-id', searchIdKey);
 
-        const searchIdVal = data.search_id ? String(data.search_id).trim() : '';
-        const searchIdKey = searchIdVal.toLowerCase();
+            const debitVal = (data.debit_udhaar !== undefined && data.debit_udhaar !== null && parseFloat(data.debit_udhaar) !== 0) ? data.debit_udhaar : '';
+            const creditVal = (data.credit_vasooli !== undefined && data.credit_vasooli !== null && parseFloat(data.credit_vasooli) !== 0) ? data.credit_vasooli : '';
+            const descVal = data.description ? String(data.description) : '';
+            const custName = customerMap[searchIdKey] || data.customer_name || '';
 
-        // Database ID ko set karna update operation ke liye lazmi hai
-        if (data.id) {
-            tr.setAttribute('data-id', data.id);
-            tr.setAttribute('data-db-id', data.id);
-        }
-        if (data.created_at) tr.setAttribute('data-created-at', data.created_at);
-        tr.setAttribute('data-search-id', searchIdKey);
-
-        const debitVal = (data.debit_udhaar !== undefined && data.debit_udhaar !== null && parseFloat(data.debit_udhaar) !== 0) ? data.debit_udhaar : '';
-        const creditVal = (data.credit_vasooli !== undefined && data.credit_vasooli !== null && parseFloat(data.credit_vasooli) !== 0) ? data.credit_vasooli : '';
-        const descVal = data.description ? String(data.description) : '';
-        const custName = customerMap[searchIdKey] || data.customer_name || '';
-
-        tr.innerHTML = `
+            tr.innerHTML = `
             <td class="text-center text-bold serial-no">${srNo}</td>
             <td class="text-center">
                 <input type="text" class="sheet-input input-search-id" value="${searchIdVal}" placeholder="Search ID" oninput="onSearchIdInput(this)" onkeydown="handleEnterNavigation(event, 'search_id')">
@@ -251,284 +291,414 @@
             </td>
         `;
 
-        tbody.appendChild(tr);
+            tbody.appendChild(tr);
 
-        if (shouldFocus) {
-            const searchInput = tr.querySelector('.input-search-id');
-            if (searchInput) searchInput.focus();
+            if (shouldFocus) {
+                const searchInput = tr.querySelector('.input-search-id');
+                if (searchInput) searchInput.focus();
+            }
         }
-    }
 
-    function addNewEmptyRow(focusNew = true) {
-        const tbody = document.getElementById('sheetTableBody');
-        const srNo = tbody.querySelectorAll('tr').length + 1;
-        appendRowToTable({}, srNo, focusNew);
-    }
-
-    function onSearchIdInput(inputElem) {
-        const tr = inputElem.closest('tr');
-        const searchVal = String(inputElem.value).trim().toLowerCase();
-        const nameInput = tr.querySelector('.input-cust-name');
-
-        tr.setAttribute('data-search-id', searchVal);
-
-        if (searchVal === '') {
-            nameInput.value = '';
-            nameInput.style.color = '#000';
-        } else if (customerMap[searchVal]) {
-            nameInput.value = customerMap[searchVal];
-            nameInput.style.color = '#000';
-        } else {
-            nameInput.value = 'Not Found';
-            nameInput.style.color = '#c0392b';
+        function addNewEmptyRow(focusNew = true) {
+            const tbody = document.getElementById('sheetTableBody');
+            const srNo = tbody.querySelectorAll('tr').length + 1;
+            appendRowToTable({}, srNo, focusNew);
+            reindexSerialNumbers();
         }
-    }
 
-    function isRowFilled(tr) {
-        const searchId = tr.querySelector('.input-search-id')?.value.trim() || '';
-        const desc = tr.querySelector('.input-description')?.value.trim() || '';
-        const debit = parseFloat(tr.querySelector('.input-debit')?.value) || 0;
-        const credit = parseFloat(tr.querySelector('.input-credit')?.value) || 0;
+        function onSearchIdInput(inputElem) {
+            const tr = inputElem.closest('tr');
+            const searchVal = String(inputElem.value).trim().toLowerCase();
+            const nameInput = tr.querySelector('.input-cust-name');
 
-        return searchId !== '' || desc !== '' || debit > 0 || credit > 0;
-    }
+            tr.setAttribute('data-search-id', searchVal);
 
-    function handleEnterNavigation(event, fieldType) {
-        if (event.key === 'Enter') {
-            event.preventDefault();
-            const tr = event.target.closest('tr');
+            if (searchVal === '') {
+                nameInput.value = '';
+                nameInput.style.color = '#000';
+            } else if (customerMap[searchVal]) {
+                nameInput.value = customerMap[searchVal];
+                nameInput.style.color = '#000';
+            } else {
+                nameInput.value = 'Not Found';
+                nameInput.style.color = '#c0392b';
+            }
+        }
 
-            if (fieldType === 'search_id') {
-                tr.querySelector('.input-description').focus();
-            } else if (fieldType === 'desc') {
-                tr.querySelector('.input-debit').focus();
-            } else if (fieldType === 'debit') {
-                tr.querySelector('.input-credit').focus();
-            } else if (fieldType === 'credit') {
-                if (!isRowFilled(tr)) return;
+        function isRowFilled(tr) {
+            const searchId = tr.querySelector('.input-search-id')?.value.trim() || '';
+            const debit = parseFloat(tr.querySelector('.input-debit')?.value) || 0;
+            const credit = parseFloat(tr.querySelector('.input-credit')?.value) || 0;
 
-                const nextTr = tr.nextElementSibling;
-                if (nextTr) {
-                    nextTr.querySelector('.input-search-id').focus();
+            return searchId !== '' || debit > 0 || credit > 0;
+        }
+
+        function handleEnterNavigation(event, fieldType) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const tr = event.target.closest('tr');
+
+                if (fieldType === 'search_id') {
+                    tr.querySelector('.input-description').focus();
+                } else if (fieldType === 'desc') {
+                    tr.querySelector('.input-debit').focus();
+                } else if (fieldType === 'debit') {
+                    tr.querySelector('.input-credit').focus();
+                } else if (fieldType === 'credit') {
+                    if (!isRowFilled(tr)) return;
+
+                    const nextTr = tr.nextElementSibling;
+                    if (nextTr) {
+                        nextTr.querySelector('.input-search-id').focus();
+                    } else {
+                        addNewEmptyRow(true);
+                    }
+                }
+            }
+        }
+
+        // --- GLOBAL MASTER LIVE SEARCH WITH DROPDOWN ---
+        function handleGlobalMasterSearch(query) {
+            const dropdown = document.getElementById('masterSearchDropdown');
+            const cleanQuery = query.trim().toLowerCase();
+
+            // 1. Current HTML Table rows ko filter karein
+            filterSheetTable(cleanQuery);
+
+            if (!cleanQuery) {
+                dropdown.style.display = 'none';
+                dropdown.innerHTML = '';
+                return;
+            }
+
+            // 2. Master customerMap se matching IDs/Names find karein
+            const matches = [];
+            for (const [id, name] of Object.entries(customerMap)) {
+                if (id.includes(cleanQuery) || name.toLowerCase().includes(cleanQuery)) {
+                    matches.push({ search_id: id, customer_name: name });
+                }
+            }
+
+            if (matches.length === 0) {
+                dropdown.innerHTML = `<div style="padding: 8px 12px; color: #7f8c8d; font-size: 12px; text-align: center;">No customer found</div>`;
+                dropdown.style.display = 'block';
+                return;
+            }
+
+            // Dropdown results Render karein
+            dropdown.innerHTML = matches.map(c => `
+                <div onclick="selectMasterSearchResult('${c.search_id}', '${c.customer_name}')" 
+                     style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;"
+                     onmouseover="this.style.background='#ebf5fb'" 
+                     onmouseout="this.style.background='#ffffff'">
+                    <span style="font-weight: bold; color: #2c3e50; font-size: 13px;">${c.customer_name}</span>
+                    <span style="background: #2980b9; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold;">
+                        ID: ${c.search_id}
+                    </span>
+                </div>
+            `).join('');
+
+            dropdown.style.display = 'block';
+        }
+
+        function filterSheetTable(query) {
+            const rows = document.querySelectorAll('#sheetTableBody tr');
+            rows.forEach(tr => {
+                const searchId = tr.querySelector('.input-search-id')?.value.toLowerCase() || '';
+                const custName = tr.querySelector('.input-cust-name')?.value.toLowerCase() || '';
+
+                if (!query || searchId.includes(query) || custName.includes(query)) {
+                    tr.style.display = '';
                 } else {
-                    addNewEmptyRow(true);
+                    tr.style.display = 'none';
+                }
+            });
+        }
+
+        function selectMasterSearchResult(searchId, customerName) {
+            const dropdown = document.getElementById('masterSearchDropdown');
+            const searchInput = document.getElementById('sheet_search_filter');
+
+            searchInput.value = customerName;
+            dropdown.style.display = 'none';
+
+            // Check karein kya yeh customer pehle se sheet mein exist karta hai
+            const rows = document.querySelectorAll('#sheetTableBody tr');
+            let foundInTable = false;
+
+            rows.forEach(tr => {
+                const sInput = tr.querySelector('.input-search-id');
+                if (sInput && sInput.value.trim().toLowerCase() === searchId.toLowerCase()) {
+                    foundInTable = true;
+                    tr.style.display = '';
+                    sInput.focus();
+                }
+            });
+
+            // Agar active table mein nahi hai, toh auto new row mein fill kar dein
+            if (!foundInTable) {
+                let emptyTr = null;
+                rows.forEach(tr => {
+                    if (!isRowFilled(tr)) emptyTr = tr;
+                });
+
+                if (!emptyTr) {
+                    addNewEmptyRow(false);
+                    const newRows = document.querySelectorAll('#sheetTableBody tr');
+                    emptyTr = newRows[newRows.length - 1];
+                }
+
+                if (emptyTr) {
+                    const sInput = emptyTr.querySelector('.input-search-id');
+                    if (sInput) {
+                        sInput.value = searchId;
+                        onSearchIdInput(sInput);
+                        emptyTr.querySelector('.input-description').focus();
+                    }
+                }
+            }
+
+            filterSheetTable(customerName.toLowerCase());
+        }
+
+        // Close dropdown when clicked outside
+        document.addEventListener('click', (e) => {
+            const dropdown = document.getElementById('masterSearchDropdown');
+            const searchInput = document.getElementById('sheet_search_filter');
+            if (dropdown && !dropdown.contains(e.target) && e.target !== searchInput) {
+                dropdown.style.display = 'none';
+            }
+        });
+
+        function recalculateTotals() {
+            let grandDebit = globalOpeningDebit;
+            let grandCredit = globalOpeningCredit;
+
+            const tbody = document.getElementById('sheetTableBody');
+            const rows = tbody.querySelectorAll('tr');
+
+            rows.forEach(tr => {
+                const debitInput = tr.querySelector('.input-debit');
+                const creditInput = tr.querySelector('.input-credit');
+
+                if (debitInput && creditInput) {
+                    const debit = parseFloat(debitInput.value) || 0;
+                    const credit = parseFloat(creditInput.value) || 0;
+
+                    grandDebit += debit;
+                    grandCredit += credit;
+                }
+            });
+
+            const lblDebit = document.getElementById('lbl_total_debit');
+            const lblCredit = document.getElementById('lbl_total_credit');
+            if (lblDebit) lblDebit.textContent = grandDebit.toLocaleString();
+            if (lblCredit) lblCredit.textContent = grandCredit.toLocaleString();
+
+            const dayNet = grandCredit - grandDebit;
+            const lblOpening = document.getElementById('lbl_opening_balance');
+            const openingVal = lblOpening ? (parseFloat(lblOpening.getAttribute('data-value')) || 0) : 0;
+            const finalClosing = openingVal + dayNet;
+
+            const lblNet = document.getElementById('lbl_net_income');
+            if (lblNet) {
+                lblNet.textContent = finalClosing.toLocaleString() + " PKR";
+            }
+        }
+
+        function updateOpeningAndClosingUI(opening, closing) {
+            const lblOpening = document.getElementById('lbl_opening_balance');
+            if (lblOpening) {
+                lblOpening.setAttribute('data-value', opening);
+                lblOpening.textContent = opening.toLocaleString() + " PKR";
+            }
+
+            const lblNet = document.getElementById('lbl_net_income');
+            if (lblNet) {
+                lblNet.textContent = closing.toLocaleString() + " PKR";
+            }
+        }
+
+        async function addNewCustomer() {
+            const name = document.getElementById('new_cust_name').value.trim();
+            const searchId = document.getElementById('new_cust_id').value.trim();
+            const userId = localStorage.getItem('userId');
+
+            if (!name || !searchId) {
+                alert("Customer Name aur Search ID dono zaroori hain!");
+                return;
+            }
+
+            const cleanId = searchId.toLowerCase();
+
+            if (customerMap[cleanId]) {
+                alert(`⚠️ Duplicate Error: Search ID '${searchId}' pehle se registered hai!`);
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_URL}/customer`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ customer_name: name, search_id: searchId, userId: userId })
+                });
+
+                const result = await res.json();
+                if (result.status === "Success" || res.ok) {
+                    document.getElementById('new_cust_name').value = "";
+                    document.getElementById('new_cust_id').value = "";
+                    customerMap[cleanId] = name;
+
+                    const tbody = document.getElementById('sheetTableBody');
+                    const currentRows = tbody.querySelectorAll('tr');
+                    
+                    let targetTr = null;
+                    if (currentRows.length > 0) {
+                        const lastTr = currentRows[currentRows.length - 1];
+                        if (!isRowFilled(lastTr)) {
+                            targetTr = lastTr;
+                        }
+                    }
+
+                    if (targetTr) {
+                        const sIdInput = targetTr.querySelector('.input-search-id');
+                        const cNameInput = targetTr.querySelector('.input-cust-name');
+                        if (sIdInput) sIdInput.value = searchId;
+                        if (cNameInput) {
+                            cNameInput.value = name;
+                            cNameInput.style.color = '#000';
+                        }
+                        targetTr.setAttribute('data-search-id', cleanId);
+                    } else {
+                        appendRowToTable({ search_id: searchId, customer_name: name }, currentRows.length + 1, false);
+                    }
+
+                    addNewEmptyRow(false);
+                    reindexSerialNumbers();
+
+                    alert("🎉 Customer Master List mein add ho gaya!");
+                } else {
+                    alert("Error: " + (result.message || result.db_error));
+                }
+            } catch (err) {
+                console.error("Customer add error:", err);
+            }
+        }
+
+        async function saveAllSheetEntries() {
+            const rawDateVal = document.getElementById('working_date').value;
+            const formattedISO = parseDDMMYYYYtoISO(rawDateVal.trim());
+
+            const tbody = document.getElementById('sheetTableBody');
+            const rows = tbody.querySelectorAll('tr');
+            const userId = localStorage.getItem('userId');
+            const saveBtn = document.querySelector('.btn-save-sheet');
+
+            if (rows.length === 0) return;
+
+            reindexSerialNumbers();
+
+            const entries = [];
+            let currentSrNo = 1;
+
+            rows.forEach(tr => {
+                const rowId = tr.getAttribute('data-id') || tr.getAttribute('data-db-id') || null;
+
+                const searchIdInput = tr.querySelector('.input-search-id');
+                const custNameInput = tr.querySelector('.input-cust-name');
+                const descInput = tr.querySelector('.input-description');
+                const debitInput = tr.querySelector('.input-debit');
+                const creditInput = tr.querySelector('.input-credit');
+
+                const searchId = searchIdInput ? searchIdInput.value.trim() : '';
+                const custName = custNameInput ? custNameInput.value.trim() : '';
+                const descVal = descInput ? descInput.value.trim() : '';
+                const debitVal = parseFloat(debitInput ? debitInput.value : 0) || 0;
+                const creditVal = parseFloat(creditInput ? creditInput.value : 0) || 0;
+
+                if ((debitVal > 0 || creditVal > 0) && searchId !== '') {
+                    const entryPayload = {
+                        sheet_sr_no: currentSrNo,
+                        sr_no: currentSrNo,
+                        search_id: searchId,
+                        customer_name: custName,
+                        description: descVal,
+                        debit_udhaar: debitVal,
+                        credit_vasooli: creditVal,
+                        debit: debitVal,
+                        credit: creditVal,
+                        sheet_date: formattedISO,
+                        userId: userId
+                    };
+
+                    if (rowId) {
+                        entryPayload.id = parseInt(rowId, 10);
+                    }
+
+                    entries.push(entryPayload);
+                    currentSrNo++;
+                }
+            });
+
+            if (entries.length === 0) {
+                alert("⚠️ Save karne ke liye koi valid transaction (Debit ya Credit amount) nahi mili!");
+                return;
+            }
+
+            try {
+                if (saveBtn) {
+                    saveBtn.disabled = true;
+                    saveBtn.innerText = "⏳ Saving...";
+                }
+
+                const res = await fetch(`${API_URL}/save`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ entries: entries, sheet_date: formattedISO, userId: userId })
+                });
+
+                const result = await res.json();
+                if (result.status === "Success" || res.ok) {
+                    alert("🎉 Data Save Ho Gaya!");
+                    await loadSheetByDate();
+                } else {
+                    alert("Error: " + (result.message || result.db_error));
+                }
+            } catch (err) {
+                console.error("Saving error:", err);
+                alert("Server communication error while saving!");
+            } finally {
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.innerText = "💾 Save Daily Sheet";
                 }
             }
         }
-    }
 
-    // --- FILTER FUNCTIONALITY FOR TABLE ---
-    function filterSheetTable() {
-        const query = document.getElementById('sheet_search_filter').value.trim().toLowerCase();
-        const rows = document.querySelectorAll('#sheetTableBody tr');
+        document.addEventListener('DOMContentLoaded', () => {
+            const dateInput = document.getElementById('working_date');
+            if (dateInput) {
+                dateInput.value = getTodayDDMMYYYY();
 
-        rows.forEach(tr => {
-            const searchId = tr.querySelector('.input-search-id')?.value.toLowerCase() || '';
-            const custName = tr.querySelector('.input-cust-name')?.value.toLowerCase() || '';
+                dateInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        dateInput.blur();
+                    }
+                });
+            }
+            loadSheetByDate();
 
-            if (searchId.includes(query) || custName.includes(query)) {
-                tr.style.display = '';
-            } else {
-                tr.style.display = 'none';
+            const logoutBtn = document.getElementById('logoutBtn');
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', () => {
+                    localStorage.removeItem('userId');
+                    localStorage.removeItem('username');
+                    alert("Aap successfully logout ho chuke hain!");
+                    window.location.href = 'login.html';
+                });
             }
         });
-    }
-
-    function recalculateTotals() {
-        let grandDebit = globalOpeningDebit;
-        let grandCredit = globalOpeningCredit;
-
-        const tbody = document.getElementById('sheetTableBody');
-        const rows = tbody.querySelectorAll('tr');
-
-        rows.forEach(tr => {
-            const debitInput = tr.querySelector('.input-debit');
-            const creditInput = tr.querySelector('.input-credit');
-
-            if (debitInput && creditInput) {
-                const debit = parseFloat(debitInput.value) || 0;
-                const credit = parseFloat(creditInput.value) || 0;
-
-                grandDebit += debit;
-                grandCredit += credit;
-            }
-        });
-
-        const lblDebit = document.getElementById('lbl_total_debit');
-        const lblCredit = document.getElementById('lbl_total_credit');
-        if (lblDebit) lblDebit.textContent = grandDebit.toLocaleString();
-        if (lblCredit) lblCredit.textContent = grandCredit.toLocaleString();
-
-        const dayNet = grandCredit - grandDebit;
-        const lblOpening = document.getElementById('lbl_opening_balance');
-        const openingVal = lblOpening ? (parseFloat(lblOpening.getAttribute('data-value')) || 0) : 0;
-        const finalClosing = openingVal + dayNet;
-
-        const lblNet = document.getElementById('lbl_net_income');
-        if (lblNet) {
-            lblNet.textContent = finalClosing.toLocaleString() + " PKR";
-        }
-    }
-
-    function updateOpeningAndClosingUI(opening, closing) {
-        const lblOpening = document.getElementById('lbl_opening_balance');
-        if (lblOpening) {
-            lblOpening.setAttribute('data-value', opening);
-            lblOpening.textContent = opening.toLocaleString() + " PKR";
-        }
-
-        const lblNet = document.getElementById('lbl_net_income');
-        if (lblNet) {
-            lblNet.textContent = closing.toLocaleString() + " PKR";
-        }
-    }
-
-    // --- ADD NEW CUSTOMER MASTER (WITH DUPLICATE ID CHECK) ---
-    async function addNewCustomer() {
-        const name = document.getElementById('new_cust_name').value.trim();
-        const searchId = document.getElementById('new_cust_id').value.trim();
-        const userId = localStorage.getItem('userId');
-
-        if (!name || !searchId) {
-            alert("Customer Name aur Search ID dono zaroori hain!");
-            return;
-        }
-
-        const cleanId = searchId.toLowerCase();
-
-        // Client side check to prevent duplicate master customer ID
-        if (customerMap[cleanId]) {
-            alert(`⚠️ Duplicate Error: Search ID '${searchId}' pehle se '${customerMap[cleanId]}' ke naam par registered hai! Sahi ya unique ID enter karein.`);
-            return;
-        }
-
-        try {
-            const res = await fetch(`${API_URL}/customer`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ customer_name: name, search_id: searchId, userId: userId })
-            });
-
-            const result = await res.json();
-            if (result.status === "Success" || res.ok) {
-                document.getElementById('new_cust_name').value = "";
-                document.getElementById('new_cust_id').value = "";
-                customerMap[cleanId] = name;
-                alert("🎉 Customer Master List mein add ho gaya!");
-            } else {
-                alert("Error: " + (result.message || result.db_error));
-            }
-        } catch (err) {
-            console.error("Customer add error:", err);
-        }
-    }
-
-    // --- SAVE DAILY SHEET ENTRIES ---
-    async function saveAllSheetEntries() {
-        const currentDate = document.getElementById('working_date').value;
-        const tbody = document.getElementById('sheetTableBody');
-        const rows = tbody.querySelectorAll('tr');
-        const userId = localStorage.getItem('userId');
-        const saveBtn = document.querySelector('.btn-save-sheet');
-
-        if (rows.length === 0) return;
-
-        const entries = [];
-
-        rows.forEach(tr => {
-            const rowId = tr.getAttribute('data-id') || tr.getAttribute('data-db-id') || null;
-
-            const searchIdInput = tr.querySelector('.input-search-id');
-            const custNameInput = tr.querySelector('.input-cust-name');
-            const descInput = tr.querySelector('.input-description');
-            const debitInput = tr.querySelector('.input-debit');
-            const creditInput = tr.querySelector('.input-credit');
-
-            const searchId = searchIdInput ? searchIdInput.value.trim() : '';
-            const custName = custNameInput ? custNameInput.value.trim() : '';
-            const descVal = descInput ? descInput.value.trim() : '';
-            const debitVal = parseFloat(debitInput ? debitInput.value : 0) || 0;
-            const creditVal = parseFloat(creditInput ? creditInput.value : 0) || 0;
-
-            if (searchId !== '' || descVal !== '' || debitVal > 0 || creditVal > 0) {
-                const entryPayload = {
-                    search_id: searchId,
-                    customer_name: custName,
-                    description: descVal,
-                    debit_udhaar: debitVal,
-                    credit_vasooli: creditVal,
-                    debit: debitVal,
-                    credit: creditVal,
-                    sheet_date: currentDate,
-                    userId: userId
-                };
-
-                // ID include karein agar exist karti hai taakay duplicate insertion na ho
-                if (rowId) {
-                    entryPayload.id = parseInt(rowId, 10);
-                }
-
-                entries.push(entryPayload);
-            }
-        });
-
-        if (entries.length === 0) {
-            alert("⚠️ Save karne ke liye koi valid entry nahi mili!");
-            return;
-        }
-
-        try {
-            // Button disable karein taakay double-click duplication na ho
-            if (saveBtn) {
-                saveBtn.disabled = true;
-                saveBtn.innerText = "⏳ Saving...";
-            }
-
-            const res = await fetch(`${API_URL}/save`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ entries: entries, sheet_date: currentDate, userId: userId })
-            });
-
-            const result = await res.json();
-            if (result.status === "Success" || res.ok) {
-                alert("🎉 Data Save Ho Gaya!");
-                await loadSheetByDate();
-            } else {
-                alert("Error: " + (result.message || result.db_error));
-            }
-        } catch (err) {
-            console.error("Saving error:", err);
-            alert("Server communication error while saving!");
-        } finally {
-            if (saveBtn) {
-                saveBtn.disabled = false;
-                saveBtn.innerText = "💾 Save Daily Sheet";
-            }
-        }
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-        const dateInput = document.getElementById('working_date');
-        if (dateInput) {
-            dateInput.value = getTodayDateString();
-            dateInput.addEventListener('change', () => {
-                loadSheetByDate();
-            });
-        }
-        loadSheetByDate();
-
-        const logoutBtn = document.getElementById('logoutBtn');
-        if (logoutBtn) {
-            logoutBtn.addEventListener('click', () => {
-                localStorage.removeItem('userId');
-                localStorage.removeItem('username');
-                alert("Aap successfully logout ho chuke hain!");
-                window.location.href = 'login.html';
-            });
-        }
-    });
-</script>
+    </script>
 </body>
 
 </html>

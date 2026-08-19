@@ -69,7 +69,8 @@ exports.addCustomer = async (req, res) => {
         return res.status(500).json({ status: "Error", db_error: error.message });
     }
 };
-// 3. Bulk Batch Save Daily Sheet Entries (Preventing Duplicates via ID check)
+
+// 3. Bulk Batch Save Daily Sheet Entries (Preventing Duplicates via ID check & Updating Search ID)
 exports.saveDailySheetEntry = async (req, res) => {
     let client;
     try {
@@ -113,16 +114,16 @@ exports.saveDailySheetEntry = async (req, res) => {
                 customerMap.set(`${cleanSearchId}_${currentUserId}`, [String(customer_name).trim(), cleanSearchId, currentUserId]);
             }
 
-            // Agar entry ki ID mojood hai aur > 0 hai, toh UPDATE karein (Dubara Duplicate Insert na karein)
+            // Agar entry ki ID mojood hai aur > 0 hai, toh UPDATE karein (search_id samet)
             if (id && parseInt(id, 10) > 0) {
                 const updateQuery = `
                     UPDATE daily_sheets 
-                    SET debit_udhaar = $1, credit_vasooli = $2, description = $3, total_balance = $4 
-                    WHERE id = $5 AND user_id = $6
+                    SET search_id = $1, debit_udhaar = $2, credit_vasooli = $3, description = $4, total_balance = $5 
+                    WHERE id = $6 AND user_id = $7
                 `;
-                await client.query(updateQuery, [debitVal, creditVal, cleanDesc, total_balance, id, currentUserId]);
+                await client.query(updateQuery, [cleanSearchId, debitVal, creditVal, cleanDesc, total_balance, id, currentUserId]);
             } 
-            // Agar bilkul NAYI entry hai (no ID) aur amounts/description hain, tab hi INSERT karein
+            // Agar NAYI entry hai (no ID), tab hi INSERT karein
             else if (cleanSearchId !== '' && (debitVal > 0 || creditVal > 0 || cleanDesc !== '')) {
                 const insertQuery = `
                     INSERT INTO daily_sheets 
@@ -177,7 +178,7 @@ exports.saveDailySheetEntry = async (req, res) => {
     }
 };
 
-// 4. Fetch Daily Sheet By Date (Option 2: Individual Rows)
+// 4. Fetch Daily Sheet By Date (Individual Rows with Dynamic 1,2,3... Sr#)
 exports.getDailySheetByDate = async (req, res) => {
     try {
         const { date } = req.params; 
@@ -189,10 +190,10 @@ exports.getDailySheetByDate = async (req, res) => {
 
         const formattedDate = formatDate(date);
 
-        // INNER JOIN se ab sirf wahi entries aayengi jo us din actually database me insert hui hain (Individual Transactions)
+        // ROW_NUMBER() se dynamic sequence banayega
         const query = `
             SELECT 
-                ds.id,
+                ds.id AS db_id,
                 dc.customer_name, 
                 LOWER(TRIM(dc.search_id)) AS search_id, 
                 COALESCE(ds.description, '') AS description,
@@ -210,6 +211,20 @@ exports.getDailySheetByDate = async (req, res) => {
         `;
         
         const { rows } = await db.query(query, [userId, formattedDate]);
+
+        // Explicit Clean SR NO (1, 2, 3...) Mapping
+        const formattedEntries = rows.map((entry, index) => ({
+            id: entry.db_id,            // Internal Database ID
+            sr_no: index + 1,           // Strictly 1, 2, 3, 4... for Frontend
+            sheet_sr_no: index + 1,     // Fallback key
+            search_id: entry.search_id,
+            customer_name: entry.customer_name,
+            description: entry.description,
+            debit_udhaar: parseFloat(entry.debit_udhaar) || 0,
+            credit_vasooli: parseFloat(entry.credit_vasooli) || 0,
+            total_balance: parseFloat(entry.total_balance) || 0,
+            created_at: entry.created_at
+        }));
 
         // Opening balance calculation
         const openingCumulativeQuery = `
@@ -231,7 +246,7 @@ exports.getDailySheetByDate = async (req, res) => {
         // Today's total calculation
         let today_debit = 0;
         let today_credit = 0;
-        rows.forEach(entry => {
+        formattedEntries.forEach(entry => {
             today_debit += parseFloat(entry.debit_udhaar) || 0;
             today_credit += parseFloat(entry.credit_vasooli) || 0;
         });
@@ -249,7 +264,7 @@ exports.getDailySheetByDate = async (req, res) => {
             total_credit: overall_credit,
             opening_balance,
             closing_balance,
-            entries: rows
+            entries: formattedEntries
         });
     } catch (error) {
         console.error("Fetch Sheet Error:", error);

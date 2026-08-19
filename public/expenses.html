@@ -5,12 +5,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bhatti Petroleum, BHOBRA - [Static Expenses Report]</title>
+    
+    <!-- CSS Dependencies -->
     <link rel="stylesheet" href="style.css">
     <link rel="icon" type="image/png" href="/logo.png">
 </head>
 
 <body>
 
+    <!-- Header Section -->
     <div class="window-title">
         <span>⛽ Bhatti Petroleum, BHOBRA - Fixed Expense Accounts Report</span>
         <button id="logoutBtn" class="btn btn-danger">
@@ -23,7 +26,6 @@
         <a href="dashboard.html" class="tab-item">📊 Dashboard</a>
         <a href="meter-reading.html" class="tab-item">⛽ Meter Reading</a>
         <a href="daily-sheet.html" class="tab-item">📝 Daily Sheet</a>
-
         <a href="expenses.html" class="tab-item active">🏷️ Expense</a>
         <a href="ledgers.html" class="tab-item">📒 Ledgers</a>
         <a href="pricing.html" class="tab-item">🏷️ Pricing</a>
@@ -51,6 +53,7 @@
         </button>
     </div>
 
+    <!-- Section Header -->
     <div class="section-header-box" style="margin-top: 15px;">
         <span>Fixed Expense Accounts Summary</span>
         <span style="font-weight: normal; font-size: 12px;">Realtime Total Debit Summary</span>
@@ -82,143 +85,179 @@
         </div>
     </div>
 
+    <!-- Application Script -->
     <script>
-    const API_URL = '/api/daily-sheet';
+        const API_URL = '/api/daily-sheet';
 
-    // Helper: Local date ko YYYY-MM-DD format me convert karne ke liye
-    function getTodayFormatted() {
-        const today = new Date();
-        const year = today.getFullYear();
-        const month = String(today.getMonth() + 1).padStart(2, '0');
-        const day = String(today.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    }
+        // -------------------------------------------------------------
+        // Helper Functions
+        // -------------------------------------------------------------
 
-    // Helper: Safe userId extractor
-    function getCleanUserId() {
-        let rawUserId = localStorage.getItem('userId');
-        if (!rawUserId) return null;
-
-        try {
-            const parsed = JSON.parse(rawUserId);
-            if (parsed && parsed.id) rawUserId = parsed.id;
-            else if (parsed && parsed.userId) rawUserId = parsed.userId;
-        } catch (e) {
-            // Raw string hi hai
+        /**
+         * Local date ko YYYY-MM-DD format me convert karta hai
+         */
+        function getTodayFormatted() {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
         }
 
-        const cleanId = String(rawUserId).split(':')[0].trim();
-        return isNaN(cleanId) ? null : cleanId;
-    }
+        /**
+         * LocalStorage se cleaned numeric User ID extract karta hai
+         */
+        function getCleanUserId() {
+            let rawUserId = localStorage.getItem('userId');
+            if (!rawUserId) return null;
 
-    async function loadStaticExpensesReport(sDate, eDate) {
-        const userId = getCleanUserId();
-        
-        if (!userId) { 
-            window.location.href = 'login.html'; 
-            return; 
-        }
-
-        try {
-            let fetchUrl = `${API_URL}/expenses-report?userId=${encodeURIComponent(userId)}`;
-            
-            if (sDate && eDate) {
-                fetchUrl += `&startDate=${encodeURIComponent(sDate)}&endDate=${encodeURIComponent(eDate)}`;
+            try {
+                const parsed = JSON.parse(rawUserId);
+                if (parsed && parsed.id) rawUserId = parsed.id;
+                else if (parsed && parsed.userId) rawUserId = parsed.userId;
+            } catch (e) {
+                // Raw string context
             }
 
-            const res = await fetch(fetchUrl);
-            const result = await res.json();
+            const cleanId = String(rawUserId).split(':')[0].trim();
+            return isNaN(cleanId) ? null : cleanId;
+        }
 
-            if (res.ok && result.status === "Success" && Array.isArray(result.data)) {
-                renderExpenseTable(result.data, result.overall_expense);
-            } else {
+        // -------------------------------------------------------------
+        // API Data Fetching & Rendering
+        // -------------------------------------------------------------
+
+        /**
+         * Expense report fetch karke table render karta hai
+         */
+        async function loadStaticExpensesReport(sDate, eDate) {
+            const userId = getCleanUserId();
+            
+            if (!userId) { 
+                window.location.href = 'login.html'; 
+                return; 
+            }
+
+            try {
+                let fetchUrl = `${API_URL}/expenses-report?userId=${encodeURIComponent(userId)}`;
+                
+                if (sDate && eDate) {
+                    fetchUrl += `&startDate=${encodeURIComponent(sDate)}&endDate=${encodeURIComponent(eDate)}`;
+                }
+
+                const res = await fetch(fetchUrl);
+                const result = await res.json();
+
+                if (res.ok && result.status === "Success" && Array.isArray(result.data)) {
+                    renderExpenseTable(result.data, result.overall_expense);
+                } else {
+                    renderExpenseTable([], 0);
+                }
+            } catch (err) {
+                console.error("Expenses load error:", err);
                 renderExpenseTable([], 0);
             }
-        } catch (err) {
-            console.error("Expenses load error:", err);
-            renderExpenseTable([], 0);
         }
-    }
 
-    function renderExpenseTable(records, grandTotal) {
-        const tbody = document.getElementById('expenseTableBody');
-        tbody.innerHTML = "";
+        /**
+         * Table Rows Render karne ka logic
+         */
+        function renderExpenseTable(records, grandTotal) {
+            const tbody = document.getElementById('expenseTableBody');
+            tbody.innerHTML = "";
 
-        if (!records || records.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="5" class="text-center" style="padding: 15px; color: #7f8c8d;">No expenses added for the selected date.</td></tr>`;
+            if (!records || records.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="text-center" style="padding: 15px; color: #7f8c8d;">
+                            No expenses added for the selected date.
+                        </td>
+                    </tr>`;
+                
+                const lblExpense = document.getElementById('lbl_grand_expense');
+                if (lblExpense) lblExpense.textContent = "0";
+                return;
+            }
+
+            records.forEach((row, index) => {
+                const tr = document.createElement('tr');
+
+                tr.innerHTML = `
+                    <td class="text-center text-bold">${row.sr_no || (index + 1)}</td>
+                    <td class="text-center"><strong>${row.search_id}</strong></td>
+                    <td style="font-weight: bold; color: #2c3e50;">${row.account_name}</td>
+                    <td class="text-center">${row.total_transactions || row.total_entries || 0}</td>
+                    <td class="text-bold" style="color: #c0392b; text-align: right; padding-right: 15px;">
+                        ${(parseFloat(row.total_amount) || 0).toLocaleString()} PKR
+                    </td>
+                `;
+
+                tbody.appendChild(tr);
+            });
+
             const lblExpense = document.getElementById('lbl_grand_expense');
-            if (lblExpense) lblExpense.textContent = "0";
-            return;
+            if (lblExpense) {
+                lblExpense.textContent = (grandTotal || 0).toLocaleString();
+            }
         }
 
-        records.forEach((row, index) => {
-            const tr = document.createElement('tr');
+        // -------------------------------------------------------------
+        // Action Handlers
+        // -------------------------------------------------------------
 
-            tr.innerHTML = `
-                <td class="text-center text-bold">${row.sr_no || (index + 1)}</td>
-                <td class="text-center"><strong>${row.search_id}</strong></td>
-                <td style="font-weight: bold; color: #2c3e50;">${row.account_name}</td>
-                <td class="text-center">${row.total_transactions || row.total_entries || 0}</td>
-                <td class="text-bold" style="color: #c0392b; text-align: right; padding-right: 15px;">
-                    ${(parseFloat(row.total_amount) || 0).toLocaleString()} PKR
-                </td>
-            `;
+        /**
+         * Filter apply karne ka function
+         */
+        function applyDateFilter() {
+            const sDate = document.getElementById('startDate').value;
+            const eDate = document.getElementById('endDate').value;
 
-            tbody.appendChild(tr);
+            if (!sDate || !eDate) {
+                alert("Meharbani karke dono dates (From Date aur To Date) select karein!");
+                return;
+            }
+
+            if (sDate > eDate) {
+                alert("From Date, To Date se bari nahi ho sakti!");
+                return;
+            }
+
+            loadStaticExpensesReport(sDate, eDate);
+        }
+
+        /**
+         * Filter reset karke aaj ki date par set karne ka function
+         */
+        function resetToToday() {
+            const todayStr = getTodayFormatted();
+            document.getElementById('startDate').value = todayStr;
+            document.getElementById('endDate').value = todayStr;
+            loadStaticExpensesReport(todayStr, todayStr);
+        }
+
+        // -------------------------------------------------------------
+        // Initialization & Event Listeners
+        // -------------------------------------------------------------
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const todayStr = getTodayFormatted();
+            document.getElementById('startDate').value = todayStr;
+            document.getElementById('endDate').value = todayStr;
+            
+            // Initial load for Today's expenses
+            loadStaticExpensesReport(todayStr, todayStr);
         });
 
-        const lblExpense = document.getElementById('lbl_grand_expense');
-        if (lblExpense) {
-            lblExpense.textContent = (grandTotal || 0).toLocaleString();
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', () => {
+                localStorage.removeItem('userId');
+                localStorage.removeItem('username');
+                localStorage.removeItem('user');
+                alert("Aap successfully logout ho chuke hain!");
+                window.location.href = 'login.html';
+            });
         }
-    }
-
-    // Filter Apply Button
-    function applyDateFilter() {
-        const sDate = document.getElementById('startDate').value;
-        const eDate = document.getElementById('endDate').value;
-
-        if (!sDate || !eDate) {
-            alert("Meharbani karke dono dates (From Date aur To Date) select karein!");
-            return;
-        }
-
-        if (sDate > eDate) {
-            alert("From Date, To Date se bari nahi ho sakti!");
-            return;
-        }
-
-        loadStaticExpensesReport(sDate, eDate);
-    }
-
-    // Reset back to Today
-    function resetToToday() {
-        const todayStr = getTodayFormatted();
-        document.getElementById('startDate').value = todayStr;
-        document.getElementById('endDate').value = todayStr;
-        loadStaticExpensesReport(todayStr, todayStr);
-    }
-
-    // Initial Load - Set Today's Date by Default
-    document.addEventListener('DOMContentLoaded', () => {
-        const todayStr = getTodayFormatted();
-        document.getElementById('startDate').value = todayStr;
-        document.getElementById('endDate').value = todayStr;
-        
-        // Initial call for Today's expenses only
-        loadStaticExpensesReport(todayStr, todayStr);
-    });
-
-    const logoutBtn = document.getElementById('logoutBtn');
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', () => {
-            localStorage.removeItem('userId');
-            localStorage.removeItem('username');
-            localStorage.removeItem('user');
-            alert("Aap successfully logout ho chuke hain!");
-            window.location.href = 'login.html';
-        });
-    }
     </script>
 </body>
 

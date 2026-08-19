@@ -15,7 +15,7 @@ const formatDate = (dateInput) => {
     return `${year}-${month}-${day}`;
 };
 
-// 1. Fetch Daily Sheet By Date (PostgreSQL Compatible)
+// 1. Fetch Daily Sheet By Date (Fixed: Fetch Individual Rows, No Loss/Grouping)
 exports.getDailySheetByDate = async (req, res) => {
     try {
         const { date } = req.params; 
@@ -27,41 +27,29 @@ exports.getDailySheetByDate = async (req, res) => {
 
         const formattedDate = formatDate(date);
 
-        // PostgreSQL me GROUP_CONCAT ki jagah STRING_AGG use hota hai
-        // Postgres $1, $2 parameterized placeholders expect karta hai
+        // Direct fetch from daily_sheets with LEFT JOIN on daily_customers to fetch latest customer name
         const query = `
             SELECT 
-                dc.customer_name, 
-                LOWER(TRIM(dc.search_id)) AS search_id, 
-                COALESCE(ds.id, 0) AS id,
+                ds.id,
+                LOWER(TRIM(ds.search_id)) AS search_id, 
+                COALESCE(dc.customer_name, ds.search_id) AS customer_name,
                 COALESCE(ds.description, '') AS description,
                 COALESCE(ds.debit_udhaar, 0) AS debit_udhaar, 
                 COALESCE(ds.credit_vasooli, 0) AS credit_vasooli, 
-                COALESCE(ds.total_balance, 0) AS total_balance
-            FROM daily_customers dc
-            LEFT JOIN (
-                SELECT 
-                    search_id,
-                    user_id,
-                    MAX(id) AS id,
-                    STRING_AGG(description, ' | ') AS description,
-                    SUM(debit_udhaar) AS debit_udhaar,
-                    SUM(credit_vasooli) AS credit_vasooli,
-                    SUM(total_balance) AS total_balance
-                FROM daily_sheets
-                WHERE sheet_date::date = $1::date AND user_id = $2
-                GROUP BY LOWER(TRIM(search_id)), user_id
-            ) ds 
+                COALESCE(ds.total_balance, 0) AS total_balance,
+                ds.created_at
+            FROM daily_sheets ds
+            LEFT JOIN daily_customers dc 
                 ON LOWER(TRIM(dc.search_id)) = LOWER(TRIM(ds.search_id)) 
                 AND dc.user_id = ds.user_id
-            WHERE dc.user_id = $3
-            ORDER BY dc.id ASC
+            WHERE ds.user_id = $1
+              AND ds.sheet_date::date = $2::date
+            ORDER BY ds.id ASC
         `;
         
-        // pg driver result ko { rows } me return karta hai
-        const { rows } = await db.query(query, [formattedDate, userId, userId]);
+        const { rows } = await db.query(query, [userId, formattedDate]);
 
-        // Opening balance calculation
+        // Opening balance calculation (Before requested date)
         const openingQuery = `
             SELECT 
                 COALESCE(SUM(debit_udhaar), 0) AS opening_debit,
@@ -79,9 +67,22 @@ exports.getDailySheetByDate = async (req, res) => {
         let today_debit = 0;
         let today_credit = 0;
 
-        rows.forEach(entry => {
-            today_debit += parseFloat(entry.debit_udhaar) || 0;
-            today_credit += parseFloat(entry.credit_vasooli) || 0;
+        const formattedEntries = rows.map((entry, index) => {
+            const deb = parseFloat(entry.debit_udhaar) || 0;
+            const cred = parseFloat(entry.credit_vasooli) || 0;
+            today_debit += deb;
+            today_credit += cred;
+
+            return {
+                sr_no: index + 1,
+                id: entry.id,
+                search_id: entry.search_id,
+                customer_name: entry.customer_name,
+                description: entry.description,
+                debit_udhaar: deb,
+                credit_vasooli: cred,
+                total_balance: parseFloat(entry.total_balance) || (cred - deb)
+            };
         });
 
         const overall_debit = opening_debit + today_debit;
@@ -97,7 +98,7 @@ exports.getDailySheetByDate = async (req, res) => {
             total_credit: overall_credit,
             opening_balance,
             closing_balance,
-            entries: rows
+            entries: formattedFormattedEntries || formattedEntries
         });
 
     } catch (error) {
@@ -106,7 +107,7 @@ exports.getDailySheetByDate = async (req, res) => {
     }
 };
 
-// 2. Add or Upsert Customer (PostgreSQL ON CONFLICT)
+// 2. Add or Upsert Customer
 exports.addCustomer = async (req, res) => {
     try {
         const { customer_name, search_id, userId } = req.body;
@@ -118,7 +119,6 @@ exports.addCustomer = async (req, res) => {
         const cleanSearchId = search_id.trim().toLowerCase();
         const cleanName = customer_name.trim();
 
-        // PostgreSQL me ON DUPLICATE KEY UPDATE ki jagah ON CONFLICT use hota hai
         const query = `
             INSERT INTO daily_customers (customer_name, search_id, user_id) 
             VALUES ($1, $2, $3)

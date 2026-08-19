@@ -118,6 +118,33 @@
         .btn-print:hover {
             background-color: #1e8449;
         }
+
+        /* Customer Info Display Header Card */
+        .customer-info-card {
+            background: #f0f4f8;
+            border-left: 5px solid #1c3b5e;
+            padding: 15px 20px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .customer-info-card .cust-details h2 {
+            margin: 0;
+            color: #1c3b5e;
+            font-size: 22px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+        }
+
+        .customer-info-card .cust-details p {
+            margin: 5px 0 0 0;
+            color: #555;
+            font-size: 14px;
+        }
     </style>
 </head>
 
@@ -145,6 +172,7 @@
     <div class="print-header">
         <h2>⛽ BHATTI PETROLEUM, BHOBRA</h2>
         <h3>Customer Ledger Statement</h3>
+        <p style="font-size: 16px; margin: 5px 0;"><strong>Customer Name:</strong> <span id="printCustomerName" style="font-size: 18px; text-decoration: underline;">-</span></p>
         <p><strong>Account ID:</strong> <span id="printSearchTitle">-</span> | <strong>Date:</strong> <span id="printCurrentDate"></span></p>
     </div>
 
@@ -163,21 +191,29 @@
     <!-- Ledger Data Display Section -->
     <div id="ledgerSection" style="display: none; width: 95%; margin: 20px auto;">
 
-        <div class="no-print" style="overflow: hidden;">
+        <div class="no-print" style="overflow: hidden; margin-bottom: 10px;">
             <button type="button" onclick="window.print()" class="btn-print">
                 <i class="fas fa-print"></i> 🖨️ Print Ledger
             </button>
         </div>
 
+        <!-- Customer Top Name Card -->
+        <div class="customer-info-card no-print">
+            <div class="cust-details">
+                <h2 id="displayCustomerName"><i class="fas fa-user-circle"></i> Customer Name</h2>
+                <p><i class="fas fa-id-card"></i> <strong>Account ID:</strong> <span id="displayCustomerId" style="color:#1c3b5e; font-weight:bold;">-</span></p>
+            </div>
+        </div>
+
         <table class="sheet-table">
             <thead>
                 <tr style="background-color: #d0e1f9; color: #1c3b5e;">
-                    <th style="width: 10%;">Date</th>
-                    <th style="width: 22%;">Customer / Account Name</th>
-                    <th style="width: 30%;">Description</th>
-                    <th style="width: 13%;">Debit (Udhaar)</th>
-                    <th style="width: 13%;">Credit (Vasooli)</th>
-                    <th style="width: 12%; text-align: right;">Total / Balance</th>
+                    <th style="width: 8%; text-align: center;">Sr #</th>
+                    <th style="width: 12%;">Date</th>
+                    <th style="width: 34%;">Description</th>
+                    <th style="width: 15%;">Debit (Udhaar)</th>
+                    <th style="width: 15%;">Credit (Vasooli)</th>
+                    <th style="width: 16%; text-align: right;">Total / Balance</th>
                 </tr>
             </thead>
             <tbody id="ledgerTableBody">
@@ -239,14 +275,49 @@
                 if (response.ok && data.status === "Success") {
                     document.getElementById('ledgerSection').style.display = 'block';
 
-                    renderLedgerTable(data.history || []);
+                    const history = data.history || [];
+                    renderLedgerTable(history);
+
+                    // Top Customer Name fetch & set
+                    let detectedName = "Unknown Customer";
+                    if (history.length > 0 && history[0].driver_name) {
+                        detectedName = history[0].driver_name;
+                    }
+
+                    // Display in Screen Card
+                    document.getElementById('displayCustomerName').innerHTML = `<i class="fas fa-user-circle"></i> ${detectedName}`;
+                    document.getElementById('displayCustomerId').innerText = vehicleId.toUpperCase();
+
+                    // Display in Print Header
+                    document.getElementById('printCustomerName').innerText = detectedName;
+                    document.getElementById('printSearchTitle').innerText = vehicleId.toUpperCase();
+                    document.getElementById('printCurrentDate').innerText = new Date().toLocaleDateString('en-GB');
 
                     updateSummaryElement('totalDebitAmount', `${(data.total_debit || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`);
                     updateSummaryElement('totalCreditVasooli', `${(data.total_credit_vasooli || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`);
-                    updateSummaryElement('netBalanceAmount', `${(data.net_balance || 0).toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR`);
+                    
+                    // Net Balance calculation with DEBIT / CREDIT / CLEARED Status
+                    const netBal = parseFloat(data.net_balance || 0);
+                    let netText = "";
+                    let netColor = "#2980b9";
 
-                    document.getElementById('printSearchTitle').innerText = vehicleId.toUpperCase();
-                    document.getElementById('printCurrentDate').innerText = new Date().toLocaleDateString('en-GB');
+                    if (netBal > 0) {
+                        netText = `${netBal.toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR (DEBIT)`;
+                        netColor = "#c0392b"; // Debit = Udhaar lene hain
+                    } else if (netBal < 0) {
+                        netText = `${Math.abs(netBal).toLocaleString('en-PK', { minimumFractionDigits: 2 })} PKR (CREDIT)`;
+                        netColor = "#27ae60"; // Credit = Vasooli ziada mili
+                    } else {
+                        netText = `0.00 PKR (CLEARED)`;
+                        netColor = "#2980b9";
+                    }
+
+                    const netEl = document.getElementById('netBalanceAmount');
+                    if (netEl) {
+                        netEl.innerText = netText;
+                        netEl.style.color = netColor;
+                    }
+
                 } else {
                     alert('Error: ' + (data.message || 'Is ID ka koi record nahi mila'));
                 }
@@ -294,8 +365,8 @@
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
+                    <td style="text-align: center;"><strong>${row.sr_no || '-'}</strong></td>
                     <td>${formattedDate}</td>
-                    <td><strong>${row.driver_name || row.customer_name || '-'}</strong></td>
                     <td>${description}</td>
                     <td style="color:#c0392b; font-weight:bold;">
                         ${debitAmount.toLocaleString('en-PK', { minimumFractionDigits: 2 })}

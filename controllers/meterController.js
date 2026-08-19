@@ -7,6 +7,15 @@ const DEFAULT_LUBRICANTS = [
     'Deo 8000 4Ltrs', 'Deo 8000 10Ltrs'
 ];
 
+// Helper Function: Date YYYY-MM-DD Format karne ke liye
+const formatDate = (dateInput) => {
+    const d = dateInput ? new Date(dateInput) : new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 // 1. GET ALL LATEST NOZZLE READINGS (Filtered by user_id)
 exports.getAllReadings = async (req, res) => {
     try {
@@ -139,32 +148,136 @@ exports.addReading = async (req, res) => {
     }
 };
 
-// 5. UPDATE TANK RECEIPTS (POST)
+// 5. UPDATE TANK RECEIPTS (Editable Total & Auto Calculated Rate)
 exports.updateReceipt = async (req, res) => {
     try {
-        const { fuel_type, receipt_liters, userId } = req.body;
+        const { fuel_type, receipt_liters, total_amount, rate_per_liter, receipt_date, sheet_sr_no, userId } = req.body;
 
         if (!fuel_type || !receipt_liters || !userId) {
             return res.status(400).json({ status: "Error", message: "Missing receipt parameters!" });
         }
 
-        // Ensure target row exists before update trigger
+        const liters = parseFloat(receipt_liters) || 0;
+        const entryDate = formatDate(receipt_date);
+        const srNo = sheet_sr_no || 1;
+        const typeNormalized = fuel_type.trim().toLowerCase();
+
+        let searchId = '';
+        let fuelSearchType = '';
+
+        if (typeNormalized.includes('diesel')) {
+            searchId = 'dl';
+            fuelSearchType = 'Diesel';
+        } else if (typeNormalized.includes('super') || typeNormalized.includes('petrol')) {
+            searchId = 'sp';
+            fuelSearchType = 'Super';
+        } else {
+            searchId = typeNormalized;
+            fuelSearchType = fuel_type;
+        }
+
+        let calculatedTotal = 0;
+        let finalRate = 0;
+
+        // 1️⃣ Scenario A: Agar Frontend se User ne Editable "total_amount" bheja ho
+        if (total_amount !== undefined && total_amount !== null && total_amount !== '' && parseFloat(total_amount) > 0) {
+            calculatedTotal = parseFloat(total_amount);
+            finalRate = liters > 0 ? (calculatedTotal / liters) : 0;
+        } 
+        // 2️⃣ Scenario B: Agar rate_per_liter bheja gaya ho
+        else if (rate_per_liter && parseFloat(rate_per_liter) > 0) {
+            finalRate = parseFloat(rate_per_liter);
+            calculatedTotal = liters * finalRate;
+        } 
+        // 3️⃣ Scenario C: Database se Latest Rate utha kar Calculate karein
+        else {
+            try {
+                let rateResult = await db.query(
+                    `SELECT purchase_price, rate_per_litre FROM fuel_rates 
+                     WHERE (LOWER(TRIM(product_type)) LIKE LOWER($1) 
+                        OR LOWER(TRIM(product_name)) LIKE LOWER($1) 
+                        OR LOWER(TRIM(specific_category)) LIKE LOWER($1))
+                       AND (user_id = $2 OR user_id IS NULL)
+                     ORDER BY rate_date DESC, created_at DESC, id DESC LIMIT 1`,
+                    [`%${fuelSearchType.toLowerCase()}%`, userId]
+                );
+
+                if (rateResult.rows.length === 0) {
+                    rateResult = await db.query(
+                        `SELECT purchase_price, rate_per_litre FROM fuel_rates 
+                         WHERE LOWER(TRIM(product_type)) LIKE LOWER($1) 
+                            OR LOWER(TRIM(product_name)) LIKE LOWER($1)
+                         ORDER BY rate_date DESC, created_at DESC, id DESC LIMIT 1`,
+                        [`%${fuelSearchType.toLowerCase()}%`]
+                    );
+                }
+
+                if (rateResult.rows.length > 0) {
+                    const row = rateResult.rows[0];
+                    const pPrice = parseFloat(row.purchase_price || 0);
+                    const rPrice = parseFloat(row.rate_per_litre || 0);
+                    finalRate = pPrice > 0 ? pPrice : rPrice;
+                }
+            } catch (rateErr) {
+                console.error("DB Rate Fetch Error:", rateErr.message);
+            }
+
+            calculatedTotal = liters * finalRate;
+        }
+
+        const formattedRate = finalRate.toFixed(2);
+
+        console.log(`[RECEIPT LOG] Product: ${fuelSearchType} | Liters: ${liters} | Effective Rate: ${formattedRate} | Final Total Debit: ${calculatedTotal}`);
+
+        // Description Text
+        const descriptionText = finalRate > 0 
+            ? `${typeNormalized.includes('diesel') ? 'diesel' : 'petrol'} stock (${liters}L @ ${formattedRate})`
+            : `${typeNormalized.includes('diesel') ? 'diesel' : 'petrol'} stock (${liters}L)`;
+
+        // 1. Ensure target row exists in fuel_stocks
         await db.query(`
-            INSERT INTO fuel_stocks (fuel_type, current_stock, user_id) 
-            VALUES ($1, 0.00, $2)
+            INSERT INTO fuel_stocks (fuel_type, current_stock, opening_stock, receipt_stock, user_id) 
+            VALUES ($1, 0.00, 0.00, 0.00, $2)
             ON CONFLICT (fuel_type, user_id) DO NOTHING
         `, [fuel_type, userId]);
 
-        const query = 'UPDATE fuel_stocks SET current_stock = current_stock + $1 WHERE LOWER(TRIM(fuel_type)) = LOWER(TRIM($2)) AND user_id = $3';
-        await db.query(query, [parseFloat(receipt_liters), fuel_type, userId]);
+        // 2. Update Stock Quantity in fuel_stocks
+        await db.query(`
+            UPDATE fuel_stocks 
+            SET current_stock = current_stock + $1,
+                receipt_stock = receipt_stock + $1
+            WHERE LOWER(TRIM(fuel_type)) = LOWER(TRIM($2)) AND user_id = $3
+        `, [liters, fuel_type, userId]);
 
-        res.json({ status: "Success", message: "Tank stock added successfully!" });
+        // 3. Insert Row in daily_sheets
+        await db.query(`
+            INSERT INTO daily_sheets (search_id, debit_udhaar, credit_vasooli, description, total_balance, sheet_date, user_id, sheet_sr_no)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, [
+            searchId,               // 'dl' ya 'sp'
+            calculatedTotal,        // Debit amount (Editable / Calculated Total)
+            0.00,                   // Credit vasooli
+            descriptionText,        // Description
+            -calculatedTotal,       // total_balance
+            entryDate,              // Sheet Date
+            userId,                 // User ID
+            srNo                    // Sheet Sr No
+        ]);
+
+        res.json({ 
+            status: "Success", 
+            message: `Stock added (${liters} Ltrs). Rs. ${calculatedTotal} debited to daily sheet ('${searchId}')!`,
+            data: {
+                liters,
+                rate: formattedRate,
+                totalAmount: calculatedTotal
+            }
+        });
     } catch (error) {
         console.error("Update Receipt Error:", error);
         res.status(500).json({ status: "Error", message: error.message });
     }
 };
-
 // 6. BATCH UPDATE LUBRICANTS (POST)
 exports.updateLubricants = async (req, res) => {
     try {

@@ -90,7 +90,6 @@ exports.getTrialBalance = async (req, res) => {
         const hasDates = Boolean(sDate && eDate);
         const queryParams = [];
 
-        // Dynamic Clauses with Positional Parameters ($1, $2, etc.)
         let clWhere = '1=1';
         if (userId) { queryParams.push(userId); clWhere += ` AND user_id = $${queryParams.length}`; }
         if (hasDates) { 
@@ -328,7 +327,7 @@ exports.getDailySummary = async (req, res) => {
     }
 };
 
-// 5. Post Month-End Profit to Diesel & Super Accounts
+// Post Month-End Profit directly into daily_sheets
 exports.postMonthEndProfit = async (req, res) => {
     try {
         const { startDate, start_date, endDate, end_date, userId } = req.body;
@@ -381,38 +380,31 @@ exports.postMonthEndProfit = async (req, res) => {
             if (profitAmount <= 0) continue;
 
             let searchId = '';
-            let targetCustomerName = '';
 
-            if (rawFuelName.includes('diesel')) {
-                searchId = 'diesel';
-                targetCustomerName = 'Diesel Khata';
-            } else if (rawFuelName.includes('super') || rawFuelName.includes('petrol')) {
-                searchId = 'super';
-                targetCustomerName = 'Super Khata';
+            // Search IDs Mapping (dl for Diesel, sp for Super/Petrol)
+            if (rawFuelName.includes('diesel') || rawFuelName.includes('hsd') || rawFuelName.includes('dl')) {
+                searchId = 'dl';
+            } else if (rawFuelName.includes('super') || rawFuelName.includes('petrol') || rawFuelName.includes('sp') || rawFuelName.includes('pm')) {
+                searchId = 'sp';
             }
 
             if (searchId) {
-                const { rows: custRes } = await db.query(
-                    'SELECT customer_name FROM daily_customers WHERE user_id = $1 AND search_id = $2 LIMIT 1',
-                    [userId, searchId]
-                );
+                const description = `Month-End Profit Return (${sDate} to ${eDate})`;
 
-                if (custRes.length > 0) {
-                    targetCustomerName = custRes[0].customer_name;
-                }
-
-                const description = `Profit Return - ${targetCustomerName}`;
-
+                // Insert into daily_sheets table
                 await db.query(
-                    `INSERT INTO credit_ledgers (user_id, customer_name, description, debit_pkr, credit_pkr, created_at) 
-                     VALUES ($1, $2, $3, 0, $4, CURRENT_TIMESTAMP)`,
-                    [userId, targetCustomerName, description, profitAmount]
+                    `INSERT INTO daily_sheets (search_id, debit_udhaar, credit_vasooli, description, sheet_date, user_id, total_balance) 
+                     VALUES ($1, $2, 0.00, $3, $4, $5, $6)`,
+                    [searchId, profitAmount, description, eDate, userId, -profitAmount]
                 );
 
                 addedRecords.push({
-                    customer: targetCustomerName,
-                    amount: profitAmount,
-                    description: description
+                    search_id: searchId,
+                    debit_udhaar: profitAmount,
+                    credit_vasooli: 0,
+                    description: description,
+                    sheet_date: eDate,
+                    user_id: userId
                 });
             }
         }
@@ -420,12 +412,12 @@ exports.postMonthEndProfit = async (req, res) => {
         return res.status(200).json({
             success: true,
             status: "Success",
-            message: "Month-End fuel profit successfully return/post kar di gayi hai.",
+            message: "Month-End fuel profit successfully added to daily_sheets table.",
             details: addedRecords
         });
 
     } catch (error) {
-        console.error('Error posting month-end profit:', error);
+        console.error('Error posting month-end profit to daily_sheets:', error);
         return res.status(500).json({
             success: false,
             status: "Error",

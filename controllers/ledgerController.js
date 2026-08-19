@@ -166,7 +166,7 @@ exports.logVehicleVasooli = async (req, res) => {
     }
 };
 
-// 4. GET CUSTOMER LEDGER (FIXED: NO DUPLICATE ROW CREATION)
+// 4. GET CUSTOMER LEDGER WITH RUNNING BALANCE
 exports.getVehicleLedger = async (req, res) => {
     try {
         const rawQuery = req.params.gari_number || '';
@@ -180,34 +180,45 @@ exports.getVehicleLedger = async (req, res) => {
         const isAllQuery = !trimmedQuery || trimmedQuery.toUpperCase() === 'ALL';
 
         let dailySql = `
+            WITH ranked_sheets AS (
+                SELECT 
+                    ds.*,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY ds.user_id, ds.sheet_date 
+                        ORDER BY ds.id ASC
+                    ) AS calculated_sr_no
+                FROM daily_sheets ds
+                WHERE ds.user_id = $1
+            )
             SELECT 
-                ds.id,
+                rs.id,
+                rs.calculated_sr_no AS sr_no,
                 (
                     SELECT dc.customer_name 
                     FROM daily_customers dc 
-                    WHERE LOWER(TRIM(dc.search_id)) = LOWER(TRIM(ds.search_id)) 
-                      AND dc.user_id = ds.user_id 
+                    WHERE LOWER(TRIM(dc.search_id)) = LOWER(TRIM(rs.search_id)) 
+                      AND dc.user_id = rs.user_id 
                     LIMIT 1
                 ) AS driver_name,
-                ds.search_id,
+                rs.search_id,
                 'Daily Sheet' AS product,
                 0 AS litres,
                 0 AS rate_pkr,
-                CAST(COALESCE(ds.debit_udhaar, 0) AS DECIMAL(10,2)) AS debit_udhaar,
-                CAST(COALESCE(ds.credit_vasooli, 0) AS DECIMAL(10,2)) AS credit_vasooli,
-                CAST((COALESCE(ds.debit_udhaar, 0) - COALESCE(ds.credit_vasooli, 0)) AS DECIMAL(10,2)) AS net_total,
-                ds.sheet_date AS entry_date,
+                CAST(COALESCE(rs.debit_udhaar, 0) AS DECIMAL(10,2)) AS debit_udhaar,
+                CAST(COALESCE(rs.credit_vasooli, 0) AS DECIMAL(10,2)) AS credit_vasooli,
+                CAST((COALESCE(rs.debit_udhaar, 0) - COALESCE(rs.credit_vasooli, 0)) AS DECIMAL(10,2)) AS net_total,
+                rs.sheet_date AS entry_date,
                 'CASH' AS payment_type,
-                ds.description AS description,
-                ds.user_id
-            FROM daily_sheets ds
-            WHERE ds.user_id = $1
+                rs.description AS description,
+                rs.user_id
+            FROM ranked_sheets rs
+            WHERE 1=1
         `;
 
         let dailyParams = [userId];
 
         if (!isAllQuery) {
-            dailySql += ` AND LOWER(TRIM(ds.search_id)) = LOWER($2)`;
+            dailySql += ` AND LOWER(TRIM(rs.search_id)) = LOWER($2)`;
             dailyParams.push(trimmedQuery);
         }
 
@@ -219,14 +230,27 @@ exports.getVehicleLedger = async (req, res) => {
             }
         });
 
-        cashRows.sort((a, b) => new Date(b.entry_date) - new Date(a.entry_date));
+        // Chronological order for accurate running balance
+        cashRows.sort((a, b) => {
+            const dateDiff = new Date(a.entry_date) - new Date(b.entry_date);
+            if (dateDiff !== 0) return dateDiff;
+            return a.id - b.id;
+        });
 
         let total_debit = 0;
         let total_credit_vasooli = 0;
+        let cumulative_balance = 0;
 
+        // Cumulative running balance computation
         cashRows.forEach(entry => {
-            total_debit += parseFloat(entry.debit_udhaar || 0);
-            total_credit_vasooli += parseFloat(entry.credit_vasooli || 0);
+            const debit = parseFloat(entry.debit_udhaar || 0);
+            const credit = parseFloat(entry.credit_vasooli || 0);
+
+            total_debit += debit;
+            total_credit_vasooli += credit;
+
+            cumulative_balance += (debit - credit);
+            entry.running_balance = cumulative_balance;
         });
 
         return res.json({
@@ -234,7 +258,7 @@ exports.getVehicleLedger = async (req, res) => {
             total_logged_fuel: 0,
             total_debit: total_debit,
             total_credit_vasooli: total_credit_vasooli,
-            net_balance: total_debit - total_credit_vasooli,
+            net_balance: cumulative_balance,
             history: cashRows
         });
 
@@ -247,7 +271,51 @@ exports.getVehicleLedger = async (req, res) => {
     }
 };
 
-// 5. DELETE CREDIT ENTRY
+// 5. SAVE DAILY SHEET AND SYNC LEDGER (Auto Sync Trigger)
+exports.saveDailySheetAndSyncLedger = async (req, res) => {
+    const client = await db.connect();
+    try {
+        await client.query('BEGIN');
+        const { search_id, debit_udhaar, credit_vasooli, sheet_date, description, userId } = req.body;
+
+        if (!search_id || !sheet_date || !userId) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ status: "Error", message: "Search ID, Date aur User ID required hain!" });
+        }
+
+        // Insert into Daily Sheets
+        const insertSheetQuery = `
+            INSERT INTO daily_sheets (search_id, debit_udhaar, credit_vasooli, sheet_date, description, user_id)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id
+        `;
+        const sheetRes = await client.query(insertSheetQuery, [
+            search_id.trim(),
+            parseFloat(debit_udhaar) || 0,
+            parseFloat(credit_vasooli) || 0,
+            sheet_date,
+            description ? description.trim() : '',
+            userId
+        ]);
+
+        await client.query('COMMIT');
+
+        res.json({
+            status: "Success",
+            message: "Daily sheet saved and ledger updated automatically!",
+            sheet_id: sheetRes.rows[0].id
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Daily Sheet Save Error:", error);
+        res.status(500).json({ status: "Error", message: "Database Error: " + error.message });
+    } finally {
+        client.release();
+    }
+};
+
+// 6. DELETE CREDIT ENTRY
 exports.deleteCreditEntry = async (req, res) => {
     try {
         const { id } = req.params;
@@ -280,7 +348,7 @@ exports.deleteCreditEntry = async (req, res) => {
     }
 };
 
-// 6. GET TRIAL BALANCE SUMMARY (FIXED & DEDUPLICATED)
+// 7. GET TRIAL BALANCE SUMMARY
 exports.getTrialBalance = async (req, res) => {
     try {
         const { userId, startDate, endDate } = req.query;
@@ -289,11 +357,9 @@ exports.getTrialBalance = async (req, res) => {
             return res.status(400).json({ status: "Error", message: "User ID is required" });
         }
 
-        let dateCondition = "";
         let params = [];
 
         if (startDate && endDate) {
-            dateCondition = " AND ds.sheet_date::date BETWEEN $3::date AND $4::date ";
             params = [userId, userId, startDate, endDate, userId, startDate, endDate, userId, userId];
         } else {
             params = [userId, userId, userId, userId, userId];
@@ -361,7 +427,7 @@ exports.getTrialBalance = async (req, res) => {
     }
 };
 
-// 7. GET ACCOUNT TYPES
+// 8. GET ACCOUNT TYPES
 exports.getAccountTypes = async (req, res) => {
     try {
         const { rows: types } = await db.query('SELECT * FROM account_types ORDER BY id ASC');
@@ -372,7 +438,7 @@ exports.getAccountTypes = async (req, res) => {
     }
 };
 
-// 8. CREATE NEW CHART OF ACCOUNT
+// 9. CREATE NEW CHART OF ACCOUNT
 exports.createAccount = async (req, res) => {
     try {
         const { account_name, account_type_id, opening_balance, balance_type, userId } = req.body;

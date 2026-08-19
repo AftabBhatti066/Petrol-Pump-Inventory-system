@@ -9,7 +9,7 @@ const cors = require('cors');
 // 2. Database Config Import
 const db = require('./config/db');
 
-// 3. Express App Initialize (SUB SE PEHLE APP DEFINE HONI CHAHIYE)
+// 3. Express App Initialize
 const app = express();
 
 // 4. Port Number Define
@@ -35,6 +35,44 @@ app.use('/api', authRoutes);
 const fuelRoutes = require('./routes/fuelRoutes');
 app.use('/api/fuel', fuelRoutes);
 
+// ------------------------------------------
+// ⛽ FUEL RATES API ROUTE (SUPABASE / POSTGRESQL FIXED)
+// ------------------------------------------
+app.get('/api/rates', async (req, res) => {
+    try {
+        const userId = req.query.userId;
+        if (!userId) {
+            return res.json({ status: "Success", data: [] });
+        }
+
+        // Supabase / PostgreSQL Direct Safe Query
+        try {
+            // Check in fuel_rates table
+            const result = await db.query(
+                'SELECT product_type, purchase_price FROM fuel_rates WHERE user_id = $1', 
+                [userId]
+            );
+            return res.json({ status: "Success", data: result.rows || result });
+        } catch (dbErr) {
+            console.warn("fuel_rates table check failed, checking pricing table...");
+            
+            try {
+                // Fallback to pricing table if fuel_rates doesn't exist
+                const result = await db.query(
+                    'SELECT product_type, purchase_price FROM pricing WHERE user_id = $1', 
+                    [userId]
+                );
+                return res.json({ status: "Success", data: result.rows || result });
+            } catch (err2) {
+                console.warn("Pricing table query failed as well:", err2.message);
+                return res.json({ status: "Success", data: [] });
+            }
+        }
+    } catch (err) {
+        console.error("Rates fetch error:", err);
+        return res.json({ status: "Success", data: [] });
+    }
+});
 const meterRoutes = require('./routes/meterRoutes');
 app.use('/api/meter', meterRoutes);
 
@@ -50,14 +88,13 @@ app.use('/api/dashboard', dashboardRoutes);
 const reportRoutes = require('./routes/reportRoutes'); 
 app.use('/api/report', reportRoutes);
 
+const expenseRoutes = require('./routes/expenseRoutes');
+app.use('/api/expense', expenseRoutes);
+
 // ==========================================
 // HTML PAGE ROUTES (Views)
 // ==========================================
 
-const expenseRoutes = require('./routes/expenseRoutes');
-
-// Expense API Prefix Register
-app.use('/api/expense', expenseRoutes);
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
