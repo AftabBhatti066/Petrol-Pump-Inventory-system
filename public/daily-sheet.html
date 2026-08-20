@@ -99,8 +99,7 @@
         const API_URL = '/api/daily-sheet';
         let customerMap = {};
 
-        let globalOpeningDebit = 0;
-        let globalOpeningCredit = 0;
+        let currentDayOpeningBalance = 0;
 
         // --- DATE CONVERSION UTILITIES ---
         function getTodayDDMMYYYY() {
@@ -191,8 +190,8 @@
                         }
                     });
 
-                    globalOpeningDebit = parseFloat(result.opening_debit) || 0;
-                    globalOpeningCredit = parseFloat(result.opening_credit) || 0;
+                    // Pichlay din ki Closing Balance aj ke din ki Opening Balance banay gi
+                    currentDayOpeningBalance = parseFloat(result.opening_balance) || 0;
 
                     const activeEntries = entriesData.filter(entry => {
                         const debit = parseFloat(entry.debit_udhaar) || 0;
@@ -212,22 +211,14 @@
 
                     renderTableRows(activeEntries);
 
-                    const opening = parseFloat(result.opening_balance) || 0;
-                    const closing = parseFloat(result.closing_balance) || 0;
-                    updateOpeningAndClosingUI(opening, closing);
-
                 } else {
-                    globalOpeningDebit = 0;
-                    globalOpeningCredit = 0;
+                    currentDayOpeningBalance = parseFloat(result.opening_balance) || 0;
                     renderTableRows([]);
-                    updateOpeningAndClosingUI(0, 0);
                 }
             } catch (err) {
                 console.error("Sheet load error:", err);
-                globalOpeningDebit = 0;
-                globalOpeningCredit = 0;
+                currentDayOpeningBalance = 0;
                 renderTableRows([]);
-                updateOpeningAndClosingUI(0, 0);
             }
         }
 
@@ -362,7 +353,6 @@
             const dropdown = document.getElementById('masterSearchDropdown');
             const cleanQuery = query.trim().toLowerCase();
 
-            // 1. Current HTML Table rows ko filter karein
             filterSheetTable(cleanQuery);
 
             if (!cleanQuery) {
@@ -371,7 +361,6 @@
                 return;
             }
 
-            // 2. Master customerMap se matching IDs/Names find karein
             const matches = [];
             for (const [id, name] of Object.entries(customerMap)) {
                 if (id.includes(cleanQuery) || name.toLowerCase().includes(cleanQuery)) {
@@ -385,7 +374,6 @@
                 return;
             }
 
-            // Dropdown results Render karein
             dropdown.innerHTML = matches.map(c => `
                 <div onclick="selectMasterSearchResult('${c.search_id}', '${c.customer_name}')" 
                      style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;"
@@ -422,7 +410,6 @@
             searchInput.value = customerName;
             dropdown.style.display = 'none';
 
-            // Check karein kya yeh customer pehle se sheet mein exist karta hai
             const rows = document.querySelectorAll('#sheetTableBody tr');
             let foundInTable = false;
 
@@ -435,7 +422,6 @@
                 }
             });
 
-            // Agar active table mein nahi hai, toh auto new row mein fill kar dein
             if (!foundInTable) {
                 let emptyTr = null;
                 rows.forEach(tr => {
@@ -461,7 +447,6 @@
             filterSheetTable(customerName.toLowerCase());
         }
 
-        // Close dropdown when clicked outside
         document.addEventListener('click', (e) => {
             const dropdown = document.getElementById('masterSearchDropdown');
             const searchInput = document.getElementById('sheet_search_filter');
@@ -470,9 +455,10 @@
             }
         });
 
+        // --- RE-CALCULATE PAGE SPECIFIC TOTALS & CLOSING CARRY-FORWARD ---
         function recalculateTotals() {
-            let grandDebit = globalOpeningDebit;
-            let grandCredit = globalOpeningCredit;
+            let pageTotalDebit = 0;
+            let pageTotalCredit = 0;
 
             const tbody = document.getElementById('sheetTableBody');
             const rows = tbody.querySelectorAll('tr');
@@ -485,37 +471,23 @@
                     const debit = parseFloat(debitInput.value) || 0;
                     const credit = parseFloat(creditInput.value) || 0;
 
-                    grandDebit += debit;
-                    grandCredit += credit;
+                    pageTotalDebit += debit;
+                    pageTotalCredit += credit;
                 }
             });
 
+            // 1. Total Debit & Credit purely current page entries se calculate hote hain
             const lblDebit = document.getElementById('lbl_total_debit');
             const lblCredit = document.getElementById('lbl_total_credit');
-            if (lblDebit) lblDebit.textContent = grandDebit.toLocaleString();
-            if (lblCredit) lblCredit.textContent = grandCredit.toLocaleString();
+            if (lblDebit) lblDebit.textContent = pageTotalDebit.toLocaleString();
+            if (lblCredit) lblCredit.textContent = pageTotalCredit.toLocaleString();
 
-            const dayNet = grandCredit - grandDebit;
-            const lblOpening = document.getElementById('lbl_opening_balance');
-            const openingVal = lblOpening ? (parseFloat(lblOpening.getAttribute('data-value')) || 0) : 0;
-            const finalClosing = openingVal + dayNet;
+            // 2. Net Income (Closing Cash) = Pichlay Din Ki Opening + Today Credit - Today Debit
+            const finalClosingBalance = currentDayOpeningBalance + pageTotalCredit - pageTotalDebit;
 
             const lblNet = document.getElementById('lbl_net_income');
             if (lblNet) {
-                lblNet.textContent = finalClosing.toLocaleString() + " PKR";
-            }
-        }
-
-        function updateOpeningAndClosingUI(opening, closing) {
-            const lblOpening = document.getElementById('lbl_opening_balance');
-            if (lblOpening) {
-                lblOpening.setAttribute('data-value', opening);
-                lblOpening.textContent = opening.toLocaleString() + " PKR";
-            }
-
-            const lblNet = document.getElementById('lbl_net_income');
-            if (lblNet) {
-                lblNet.textContent = closing.toLocaleString() + " PKR";
+                lblNet.textContent = finalClosingBalance.toLocaleString() + " PKR";
             }
         }
 
