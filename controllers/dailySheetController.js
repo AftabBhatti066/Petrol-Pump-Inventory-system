@@ -15,7 +15,8 @@ const formatDate = (dateInput) => {
     return `${year}-${month}-${day}`;
 };
 
-const EXPENSE_SEARCH_IDS = ['mi', 'i', 'bb', 'pm', 'rg', 's', 'l'];
+// FIXED: Added 'sp' (Super Khata) and 'dl' (Diesel Khata) to Expenses Search IDs List
+const EXPENSE_SEARCH_IDS = ['sp', 'dl', 'mi', 'i', 'bb', 'pm', 'rg', 's', 'l'];
 
 // 1. Get All Master Customers for Logged-In User
 exports.getMasterCustomers = async (req, res) => {
@@ -190,7 +191,6 @@ exports.getDailySheetByDate = async (req, res) => {
 
         const formattedDate = formatDate(date);
 
-        // ROW_NUMBER() se dynamic sequence banayega
         const query = `
             SELECT 
                 ds.id AS db_id,
@@ -212,11 +212,10 @@ exports.getDailySheetByDate = async (req, res) => {
         
         const { rows } = await db.query(query, [userId, formattedDate]);
 
-        // Explicit Clean SR NO (1, 2, 3...) Mapping
         const formattedEntries = rows.map((entry, index) => ({
-            id: entry.db_id,            // Internal Database ID
-            sr_no: index + 1,           // Strictly 1, 2, 3, 4... for Frontend
-            sheet_sr_no: index + 1,     // Fallback key
+            id: entry.db_id,            
+            sr_no: index + 1,           
+            sheet_sr_no: index + 1,     
             search_id: entry.search_id,
             customer_name: entry.customer_name,
             description: entry.description,
@@ -313,7 +312,7 @@ exports.deleteCustomerPermanently = async (req, res) => {
     }
 };
 
-// 7. Static Expenses Report
+// 7. Static Expenses Report (Now dynamically handles all 9 accounts including 'sp' & 'dl')
 exports.getExpensesReport = async (req, res) => {
     try {
         let { userId, startDate, start_date, endDate, end_date } = req.query;
