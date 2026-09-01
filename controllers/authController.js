@@ -2,11 +2,12 @@
 const db = require('../config/db'); 
 const bcrypt = require('bcrypt');
 
-// 🚀 Helper Function: Sabhi 9 Static Customers Add karne ke liye
+// 🚀 Helper Function: Sabhi Static Customers Add karne ke liye (Fixed for Mobil Khata)
 const ensureStaticCustomers = async (userId) => {
     const staticCustomers = [
         { customer_name: 'Super Khata', search_id: 'sp' },
         { customer_name: 'Diesel Khata', search_id: 'dl' },
+        { customer_name: 'Moblile Khata', search_id: 'lub' }, // ✅ Fixed: Mobil Khata Added
         { customer_name: 'mufariq ikhrajat', search_id: 'mi' },
         { customer_name: 'innum', search_id: 'i' },
         { customer_name: 'bill bajli', search_id: 'bb' },
@@ -17,7 +18,7 @@ const ensureStaticCustomers = async (userId) => {
     ];
 
     for (const customer of staticCustomers) {
-        // Postgres Syntax: $1, $2 placeholders
+        // Check karein agar static customer pehle se majood nahi hai
         const existing = await db.query(
             'SELECT id FROM daily_customers WHERE user_id = $1 AND search_id = $2',
             [userId, customer.search_id]
@@ -88,10 +89,10 @@ const registerUser = async (req, res) => {
             newUserId, newUserId, newUserId
         ]);
 
-        // 🚀 C. Automatic Static Customers Create karna
+        // 🚀 C. Automatic Static Customers Create karna (Including Mobil Khata)
         await ensureStaticCustomers(newUserId);
 
-        console.log(`Stocks and All 9 Static Customers initialized automatically for User ID: ${newUserId}`);
+        console.log(`Stocks and Static Customers initialized automatically for User ID: ${newUserId}`);
 
         return res.json({ status: "Success", message: "Manager account, default stocks aur static khatay create ho gaye hain!" });
     } catch (err) {
@@ -122,7 +123,7 @@ const loginUser = async (req, res) => {
             return res.status(401).json({ status: "Error", message: "Ghalat Username ya Password hai!" });
         }
 
-        // 🚀 Automatic check runs so every user gets all 9 static accounts
+        // 🚀 Automatic check runs so every existing user also gets the Mobil Khata
         await ensureStaticCustomers(user.id);
 
         return res.json({

@@ -36,9 +36,12 @@
         </div>
     </div>
 
-    <div class="section-header-box">
+    <div class="section-header-box" style="display: flex; justify-content: space-between; align-items: center;">
         <span>Daily Sheet (Amount-Based Entries Only)</span>
-        <span style="font-weight: normal; font-size: 12px;">Status: Realtime Dynamic Triggers Fixed</span>
+        <!-- DYNAMIC AUTO-SAVE STATUS INDICATOR -->
+        <span id="autoSaveIndicator" style="font-weight: bold; font-size: 12px; color: #27ae60; background: #ffffff; padding: 3px 8px; border-radius: 4px; border: 1px solid #27ae60;">
+            ✓ All Changes Saved
+        </span>
     </div>
 
     <div class="control-panel"
@@ -83,7 +86,7 @@
         <tbody id="sheetTableBody">
         </tbody>
     </table>
-    <button class="btn-save-sheet" onclick="saveAllSheetEntries()">💾 Save Daily Sheet</button>
+    <button class="btn-save-sheet" onclick="saveAllSheetEntries(false)">💾 Save Daily Sheet</button>
     <div class="summary-bar">
         <div>
             <span>Total Debit: <span id="lbl_total_debit" style="color: #c0392b;">0</span></span>
@@ -98,8 +101,29 @@
     <script>
         const API_URL = '/api/daily-sheet';
         let customerMap = {};
-
         let currentDayOpeningBalance = 0;
+
+        // --- AUTO SAVE DEBOUNCE TIMER ---
+        let autoSaveTimer = null;
+        let isSavingInProgress = false;
+
+        function updateAutoSaveStatus(statusText, color = '#27ae60', borderColor = '#27ae60') {
+            const indicator = document.getElementById('autoSaveIndicator');
+            if (indicator) {
+                indicator.textContent = statusText;
+                indicator.style.color = color;
+                indicator.style.borderColor = borderColor;
+            }
+        }
+
+        // Trigger Auto Save when user changes input values
+        function triggerAutoSave() {
+            updateAutoSaveStatus("⏳ Unsaved Changes...", "#e67e22", "#e67e22");
+            clearTimeout(autoSaveTimer);
+            autoSaveTimer = setTimeout(() => {
+                saveAllSheetEntries(true); // Silent Auto Save
+            }, 1000); // 1 Second Delay after user stops typing
+        }
 
         // --- DATE CONVERSION UTILITIES ---
         function getTodayDDMMYYYY() {
@@ -190,7 +214,6 @@
                         }
                     });
 
-                    // Pichlay din ki Closing Balance aj ke din ki Opening Balance banay gi
                     currentDayOpeningBalance = parseFloat(result.opening_balance) || 0;
 
                     const activeEntries = entriesData.filter(entry => {
@@ -229,6 +252,7 @@
             if (!entries || entries.length === 0) {
                 addNewEmptyRow(false);
                 recalculateTotals();
+                updateAutoSaveStatus("✓ All Changes Saved", "#27ae60", "#27ae60");
                 return;
             }
 
@@ -239,6 +263,7 @@
             addNewEmptyRow(false);
             reindexSerialNumbers();
             recalculateTotals();
+            updateAutoSaveStatus("✓ All Changes Saved", "#27ae60", "#27ae60");
 
             const filterInput = document.getElementById('sheet_search_filter');
             if (filterInput) filterInput.value = '';
@@ -266,19 +291,19 @@
             tr.innerHTML = `
             <td class="text-center text-bold serial-no">${srNo}</td>
             <td class="text-center">
-                <input type="text" class="sheet-input input-search-id" value="${searchIdVal}" placeholder="Search ID" oninput="onSearchIdInput(this)" onkeydown="handleEnterNavigation(event, 'search_id')">
+                <input type="text" class="sheet-input input-search-id" value="${searchIdVal}" placeholder="Search ID" oninput="onSearchIdInput(this); triggerAutoSave();" onkeydown="handleEnterNavigation(event, 'search_id')">
             </td>
             <td>
                 <input type="text" class="sheet-input input-cust-name" value="${custName}" placeholder="Auto Name" readonly style="background-color: #f8f9fa; font-weight: bold; color: #000;">
             </td>
             <td>
-                <input type="text" class="sheet-input input-description" value="${descVal}" placeholder="Detail..." onkeydown="handleEnterNavigation(event, 'desc')">
+                <input type="text" class="sheet-input input-description" value="${descVal}" placeholder="Detail..." oninput="triggerAutoSave()" onkeydown="handleEnterNavigation(event, 'desc')">
             </td>
             <td>
-                <input type="number" class="sheet-input input-debit" value="${debitVal}" placeholder="0" oninput="recalculateTotals()" onkeydown="handleEnterNavigation(event, 'debit')">
+                <input type="number" class="sheet-input input-debit" value="${debitVal}" placeholder="0" oninput="recalculateTotals(); triggerAutoSave();" onkeydown="handleEnterNavigation(event, 'debit')">
             </td>
             <td>
-                <input type="number" class="sheet-input input-credit" value="${creditVal}" placeholder="0" oninput="recalculateTotals()" onkeydown="handleEnterNavigation(event, 'credit')">
+                <input type="number" class="sheet-input input-credit" value="${creditVal}" placeholder="0" oninput="recalculateTotals(); triggerAutoSave();" onkeydown="handleEnterNavigation(event, 'credit')">
             </td>
         `;
 
@@ -439,6 +464,7 @@
                     if (sInput) {
                         sInput.value = searchId;
                         onSearchIdInput(sInput);
+                        triggerAutoSave();
                         emptyTr.querySelector('.input-description').focus();
                     }
                 }
@@ -476,13 +502,11 @@
                 }
             });
 
-            // 1. Total Debit & Credit purely current page entries se calculate hote hain
             const lblDebit = document.getElementById('lbl_total_debit');
             const lblCredit = document.getElementById('lbl_total_credit');
             if (lblDebit) lblDebit.textContent = pageTotalDebit.toLocaleString();
             if (lblCredit) lblCredit.textContent = pageTotalCredit.toLocaleString();
 
-            // 2. Net Income (Closing Cash) = Pichlay Din Ki Opening + Today Credit - Today Debit
             const finalClosingBalance = currentDayOpeningBalance + pageTotalCredit - pageTotalDebit;
 
             const lblNet = document.getElementById('lbl_net_income');
@@ -547,6 +571,7 @@
 
                     addNewEmptyRow(false);
                     reindexSerialNumbers();
+                    triggerAutoSave();
 
                     alert("🎉 Customer Master List mein add ho gaya!");
                 } else {
@@ -557,7 +582,10 @@
             }
         }
 
-        async function saveAllSheetEntries() {
+        // --- ENHANCED SAVE ALL SHEET ENTRIES WITH AUTO-SAVE SUPPORT ---
+        async function saveAllSheetEntries(isAutoSave = false) {
+            if (isSavingInProgress) return;
+
             const rawDateVal = document.getElementById('working_date').value;
             const formattedISO = parseDDMMYYYYtoISO(rawDateVal.trim());
 
@@ -613,12 +641,18 @@
             });
 
             if (entries.length === 0) {
-                alert("⚠️ Save karne ke liye koi valid transaction (Debit ya Credit amount) nahi mili!");
+                if (!isAutoSave) {
+                    alert("⚠️ Save karne ke liye koi valid transaction (Debit ya Credit amount) nahi mili!");
+                }
+                updateAutoSaveStatus("✓ All Changes Saved", "#27ae60", "#27ae60");
                 return;
             }
 
             try {
-                if (saveBtn) {
+                isSavingInProgress = true;
+                updateAutoSaveStatus("⏳ Auto Saving...", "#e67e22", "#e67e22");
+
+                if (!isAutoSave && saveBtn) {
                     saveBtn.disabled = true;
                     saveBtn.innerText = "⏳ Saving...";
                 }
@@ -631,16 +665,38 @@
 
                 const result = await res.json();
                 if (result.status === "Success" || res.ok) {
-                    alert("🎉 Data Save Ho Gaya!");
-                    await loadSheetByDate();
+                    updateAutoSaveStatus("✓ Saved Automatically", "#27ae60", "#27ae60");
+                    if (!isAutoSave) {
+                        alert("🎉 Data Save Ho Gaya!");
+                    }
+                    
+                    // Naye DB record IDs ko rows ke attributes mein update kar dein taake dobara save hone par update hi ho
+                    if (result.data || result.entries) {
+                        const savedData = result.data || result.entries;
+                        if (Array.isArray(savedData)) {
+                            savedData.forEach((savedItem) => {
+                                const matchingRow = Array.from(rows).find(tr => {
+                                    const sInput = tr.querySelector('.input-search-id');
+                                    return sInput && sInput.value.trim().toLowerCase() === String(savedItem.search_id).trim().toLowerCase();
+                                });
+                                if (matchingRow && savedItem.id) {
+                                    matchingRow.setAttribute('data-id', savedItem.id);
+                                    matchingRow.setAttribute('data-db-id', savedItem.id);
+                                }
+                            });
+                        }
+                    }
                 } else {
-                    alert("Error: " + (result.message || result.db_error));
+                    updateAutoSaveStatus("❌ Auto Save Failed", "#c0392b", "#c0392b");
+                    if (!isAutoSave) alert("Error: " + (result.message || result.db_error));
                 }
             } catch (err) {
                 console.error("Saving error:", err);
-                alert("Server communication error while saving!");
+                updateAutoSaveStatus("❌ Connection Error", "#c0392b", "#c0392b");
+                if (!isAutoSave) alert("Server communication error while saving!");
             } finally {
-                if (saveBtn) {
+                isSavingInProgress = false;
+                if (!isAutoSave && saveBtn) {
                     saveBtn.disabled = false;
                     saveBtn.innerText = "💾 Save Daily Sheet";
                 }

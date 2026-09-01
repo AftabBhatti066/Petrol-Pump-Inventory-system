@@ -22,7 +22,6 @@
         <a href="dashboard.html" class="tab-item">📊 Dashboard</a>
         <a href="meter-reading.html" class="tab-item">⛽ Meter Reading</a>
         <a href="daily-sheet.html" class="tab-item">📝 Daily Sheet</a>
-
         <a href="expenses.html" class="tab-item">🏷️ Expense</a>
         <a href="ledgers.html" class="tab-item">📒 Ledgers</a>
         <a href="pricing.html" class="tab-item">🏷️ Pricing</a>
@@ -137,10 +136,12 @@
             <thead>
                 <tr>
                     <th class="header-desc">Mobil Oil Product Variant</th>
-                    <th style="width: 20%;">Opening Stock (Qty)</th>
-                    <th style="width: 20%;">New Purchase Receipt (+)</th>
-                    <th style="width: 20%;">Shift Sales Deduct (-)</th>
-                    <th style="width: 24%;">Closing Stock Balance</th>
+                    <th style="width: 12%;">Opening Stock</th>
+                    <th style="width: 14%;">New Purchase Receipt (+)</th>
+                    <th style="width: 16%;">Purchase Rate (Rs.)</th>
+                    <th style="width: 18%;">Total Amount (Rs.)</th>
+                    <th style="width: 14%;">Shift Sales Deduct (-)</th>
+                    <th style="width: 16%;">Closing Stock Balance</th>
                 </tr>
             </thead>
             <tbody id="lubricantBody">
@@ -158,8 +159,8 @@
 
         let tankOpeningStock = { 'Diesel': 0, 'Super': 0 };
         let lubricantOpeningStock = {};
+        let lubricantPricingMap = {}; 
         
-        // Internal rates store karne ke liye variables
         let dbRates = { 'diesel': 0, 'super': 0 };
 
         function getTodayDateString() {
@@ -168,6 +169,24 @@
             const month = String(today.getMonth() + 1).padStart(2, '0');
             const day = String(today.getDate()).padStart(2, '0');
             return `${year}-${month}-${day}`;
+        }
+
+        // Helper function for smart fuzzy matching product names
+        function getMatchedRate(itemName) {
+            if (!itemName) return 0;
+            const target = itemName.toLowerCase().replace(/[^a-z0-9]/g, '');
+            
+            // 1. Direct match check
+            if (lubricantPricingMap[target]) return lubricantPricingMap[target];
+
+            // 2. Loose match check
+            for (let key in lubricantPricingMap) {
+                const cleanKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (cleanKey.includes(target) || target.includes(cleanKey)) {
+                    return lubricantPricingMap[key];
+                }
+            }
+            return 0;
         }
 
         async function loadCurrentStatusFromDB() {
@@ -187,7 +206,33 @@
 
                 const workingDate = document.getElementById('working_date')?.value || getTodayDateString();
 
-                // A. Nozzle readings load
+                // 1. Fetch Rates (Pass userId & fallbacks for NULL user_id records)
+                try {
+                    const ratesResponse = await fetch(`/api/rates?userId=${userId}`);
+                    const ratesResult = await ratesResponse.json();
+                    if (ratesResult.status === "Success" && ratesResult.data) {
+                        ratesResult.data.forEach(rate => {
+                            const pType = rate.product_type ? rate.product_type.trim().toLowerCase() : '';
+                            const pName = rate.product_name ? rate.product_name.trim().toLowerCase() : '';
+                            const catName = rate.specific_category ? rate.specific_category.trim().toLowerCase() : '';
+                            
+                            // Pick purchase_price first, fallback to rate_per_litre if 0
+                            const rateVal = parseFloat(rate.purchase_price) > 0 
+                                            ? parseFloat(rate.purchase_price) 
+                                            : (parseFloat(rate.rate_per_litre) || 0);
+                            
+                            if (pType === 'diesel') dbRates['diesel'] = rateVal;
+                            if (pType === 'super') dbRates['super'] = rateVal;
+                            
+                            if (pName) lubricantPricingMap[pName] = rateVal;
+                            if (catName) lubricantPricingMap[catName] = rateVal;
+                        });
+                    }
+                } catch (e) {
+                    console.log("Could not auto-fetch pricing rates", e);
+                }
+
+                // 2. Nozzle readings load
                 const response = await fetch(`${API_URL}/all?userId=${userId}&date=${workingDate}`);
                 const result = await response.json();
                 if (result.status === "Success" && result.data) {
@@ -200,7 +245,7 @@
                     updateNozzleOpening('Super (N2)', 'open_super_n2', records);
                 }
 
-                // B. Fuel Tank stock load
+                // 3. Fuel Tank stock load
                 const stockResponse = await fetch(`${API_URL}/tank-stock?userId=${userId}&date=${workingDate}`);
                 const stockResult = await stockResponse.json();
 
@@ -220,26 +265,7 @@
                 if (openDieselEl) openDieselEl.textContent = tankOpeningStock['Diesel'].toFixed(2);
                 if (openSuperEl) openSuperEl.textContent = tankOpeningStock['Super'].toFixed(2);
 
-                // C. Fetch Rates silently from DB
-                try {
-                    const ratesResponse = await fetch(`/api/rates?userId=${userId}`);
-                    const ratesResult = await ratesResponse.json();
-                    if (ratesResult.status === "Success" && ratesResult.data) {
-                        ratesResult.data.forEach(rate => {
-                            const pType = rate.product_type ? rate.product_type.toLowerCase() : '';
-                            const rateVal = parseFloat(rate.purchase_price) || parseFloat(rate.sale_price) || 0;
-                            if (pType === 'diesel') {
-                                dbRates['diesel'] = rateVal;
-                            } else if (pType === 'super') {
-                                dbRates['super'] = rateVal;
-                            }
-                        });
-                    }
-                } catch (e) {
-                    console.log("Could not auto-fetch fuel rates", e);
-                }
-
-                // D. Mobil Oil Lubricant Stock Load
+                // 4. Mobil Oil Lubricant Stock Load
                 const lubResponse = await fetch(`${API_URL}/lubricant-stock?userId=${userId}&date=${workingDate}`);
                 const lubResult = await lubResponse.json();
 
@@ -250,20 +276,27 @@
 
                     if (lubResult.status === "Success" && lubResult.data && lubResult.data.length > 0) {
                         lubResult.data.forEach((row, index) => {
-                            lubricantOpeningStock[row.item_name] = parseInt(row.current_stock) || 0;
+                            const itemName = row.item_name;
+                            lubricantOpeningStock[itemName] = parseInt(row.current_stock) || 0;
+                            
+                            // Smart fetch matched price
+                            const autoRate = getMatchedRate(itemName);
+                            const defaultPrice = autoRate > 0 ? autoRate : (parseFloat(row.purchase_price) || 0);
 
                             const tr = document.createElement('tr');
                             tr.innerHTML = `
-                                <td class="row-desc">${row.item_name}</td>
+                                <td class="row-desc">${itemName}</td>
                                 <td><span id="lub_open_${index}" class="val-blue">${row.current_stock}</span></td>
-                                <td><input type="number" id="lub_rec_${index}" class="matrix-input" value="0" oninput="calculateLiveSales()"></td>
+                                <td><input type="number" id="lub_rec_${index}" class="matrix-input" value="0" oninput="onLubricantReceiptChanged(${index})"></td>
+                                <td><input type="number" step="any" id="lub_rate_${index}" class="matrix-input" value="${defaultPrice}" oninput="onLubricantReceiptChanged(${index})" placeholder="0.00"></td>
+                                <td><input type="number" step="any" id="lub_amount_${index}" class="matrix-input" style="font-weight:bold; color:#27ae60;" value="0.00" oninput="onLubricantAmountManualChanged(${index})" placeholder="0.00"></td>
                                 <td><input type="number" id="lub_sale_${index}" class="matrix-input" value="0" oninput="calculateLiveSales()"></td>
                                 <td><span id="lub_close_${index}" class="val-purple">${row.current_stock}</span></td>
                             `;
                             tbody.appendChild(tr);
                         });
                     } else {
-                        tbody.innerHTML = `<tr><td colspan="5" class="text-center" style="color: #7f8c8d; padding: 15px; font-weight: bold;">Is user ke liye koi lubricant stock mojud nahi hai.</td></tr>`;
+                        tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="color: #7f8c8d; padding: 15px; font-weight: bold;">Is user ke liye koi lubricant stock mojud nahi hai.</td></tr>`;
                     }
                 }
 
@@ -291,7 +324,6 @@
             if (el) el.textContent = openingValues[nozzleName].toFixed(2);
         }
 
-        // Jab user New Supply Receipt (Ltr) mein value likhe ga to Amount auto-calculate hogi
         function onReceiptLitersChanged(type) {
             if (type === 'diesel') {
                 const recDiesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
@@ -307,9 +339,42 @@
             calculateLiveSales();
         }
 
-        // Live Dynamic Calculator Function
+        function onLubricantReceiptChanged(index) {
+            const recQty = parseInt(document.getElementById(`lub_rec_${index}`)?.value) || 0;
+            let rateInput = document.getElementById(`lub_rate_${index}`);
+            let currentRate = parseFloat(rateInput?.value) || 0;
+
+            // Agar rate input box zero ho, to table se name le kar smart-match karke rate auto fill karein
+            if (currentRate === 0) {
+                const tr = document.getElementById(`lub_rec_${index}`)?.closest('tr');
+                const itemName = tr ? tr.getElementsByClassName('row-desc')[0]?.textContent.trim() : '';
+                
+                const matchedRate = getMatchedRate(itemName);
+                if (matchedRate > 0) {
+                    currentRate = matchedRate;
+                    if (rateInput) rateInput.value = currentRate;
+                }
+            }
+
+            if (recQty > 0 && currentRate > 0) {
+                document.getElementById(`lub_amount_${index}`).value = (recQty * currentRate).toFixed(2);
+            } else if (recQty === 0) {
+                document.getElementById(`lub_amount_${index}`).value = "0.00";
+            }
+            calculateLiveSales();
+        }
+
+        function onLubricantAmountManualChanged(index) {
+            const recQty = parseInt(document.getElementById(`lub_rec_${index}`)?.value) || 0;
+            const amount = parseFloat(document.getElementById(`lub_amount_${index}`)?.value) || 0;
+
+            if (recQty > 0 && amount > 0) {
+                document.getElementById(`lub_rate_${index}`).value = (amount / recQty).toFixed(2);
+            }
+            calculateLiveSales();
+        }
+
         function calculateLiveSales() {
-            // Get Closing Nozzle Readings
             const close_dn1_val = document.getElementById('close_diesel_n1')?.value;
             const close_dn2_val = document.getElementById('close_diesel_n2')?.value;
             const close_dn3_val = document.getElementById('close_diesel_n3')?.value;
@@ -317,7 +382,6 @@
             const close_sn1_val = document.getElementById('close_super_n1')?.value;
             const close_sn2_val = document.getElementById('close_super_n2')?.value;
 
-            // Compute sales per nozzle
             const sales_dn1 = (close_dn1_val !== "" && close_dn1_val !== undefined) ? Math.max(0, parseFloat(close_dn1_val) - (openingValues['Diesel (N1)'] || 0)) : 0;
             const sales_dn2 = (close_dn2_val !== "" && close_dn2_val !== undefined) ? Math.max(0, parseFloat(close_dn2_val) - (openingValues['Diesel (N2)'] || 0)) : 0;
             const sales_dn3 = (close_dn3_val !== "" && close_dn3_val !== undefined) ? Math.max(0, parseFloat(close_dn3_val) - (openingValues['Diesel (N3)'] || 0)) : 0;
@@ -326,7 +390,6 @@
             const sales_sn1 = (close_sn1_val !== "" && close_sn1_val !== undefined) ? Math.max(0, parseFloat(close_sn1_val) - (openingValues['Super (N1)'] || 0)) : 0;
             const sales_sn2 = (close_sn2_val !== "" && close_sn2_val !== undefined) ? Math.max(0, parseFloat(close_sn2_val) - (openingValues['Super (N2)'] || 0)) : 0;
 
-            // Render Nozzle Sales
             if (document.getElementById('sales_diesel_n1')) document.getElementById('sales_diesel_n1').textContent = sales_dn1.toFixed(2);
             if (document.getElementById('sales_diesel_n2')) document.getElementById('sales_diesel_n2').textContent = sales_dn2.toFixed(2);
             if (document.getElementById('sales_diesel_n3')) document.getElementById('sales_diesel_n3').textContent = sales_dn3.toFixed(2);
@@ -340,18 +403,15 @@
             if (document.getElementById('stock_deduct_diesel')) document.getElementById('stock_deduct_diesel').textContent = total_diesel_sales.toFixed(2);
             if (document.getElementById('stock_deduct_super')) document.getElementById('stock_deduct_super').textContent = total_super_sales.toFixed(2);
 
-            // Fetch Tank New Receipts
             const rec_diesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
             const rec_super = parseFloat(document.getElementById('receipt_super')?.value) || 0;
 
-            // Closing Stock = Opening + Receipt - Sales
             const closing_diesel_tank = (tankOpeningStock['Diesel'] || 0) + rec_diesel - total_diesel_sales;
             const closing_super_tank = (tankOpeningStock['Super'] || 0) + rec_super - total_super_sales;
 
             if (document.getElementById('stock_close_diesel')) document.getElementById('stock_close_diesel').textContent = closing_diesel_tank.toFixed(2);
             if (document.getElementById('stock_close_super')) document.getElementById('stock_close_super').textContent = closing_super_tank.toFixed(2);
 
-            // Mobil Oil calculations
             const tbody = document.getElementById('lubricantBody');
             if (tbody) {
                 const rows = tbody.getElementsByTagName('tr');
@@ -388,7 +448,6 @@
             }
 
             try {
-                // 1. Fuel Tank Receipts Update (Calculates rate dynamically before saving)
                 const recDiesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
                 const recSuper = parseFloat(document.getElementById('receipt_super')?.value) || 0;
                 
@@ -433,7 +492,6 @@
                 }
                 await Promise.all(tankReceiptPromises);
 
-                // 2. Fuel Nozzles Update
                 const nozzleConfigs = [
                     { name: 'Diesel (N1)', type: 'Diesel', inputId: 'close_diesel_n1' },
                     { name: 'Diesel (N2)', type: 'Diesel', inputId: 'close_diesel_n2' },
@@ -465,7 +523,6 @@
                 }
                 await Promise.all(nozzlePromises);
 
-                // 3. Mobil Oil Batch Process Packager
                 const lubSales = [];
                 const lubReceipts = [];
                 const tbody = document.getElementById('lubricantBody');
@@ -481,8 +538,17 @@
                             const recVal = parseInt(document.getElementById(`lub_rec_${i}`)?.value) || 0;
                             const saleVal = parseInt(document.getElementById(`lub_sale_${i}`)?.value) || 0;
 
+                            const rateVal = parseFloat(document.getElementById(`lub_rate_${i}`)?.value) || 0;
+                            const amountVal = parseFloat(document.getElementById(`lub_amount_${i}`)?.value) || (recVal * rateVal);
+                            const calculatedRate = recVal > 0 ? (amountVal / recVal) : rateVal;
+
                             if (saleVal > 0) lubSales.push({ name: name, qty: saleVal });
-                            if (recVal > 0) lubReceipts.push({ name: name, qty: recVal });
+                            if (recVal > 0) lubReceipts.push({ 
+                                name: name, 
+                                qty: recVal,
+                                total_amount: amountVal,
+                                rate: calculatedRate
+                            });
                         }
                     }
                 }
@@ -491,23 +557,27 @@
                     await fetch(`${API_URL}/update-lubricants`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ lubricant_sales: lubSales, lubricant_receipts: lubReceipts, userId: userId, reading_date: dateInput })
+                        body: JSON.stringify({ 
+                            lubricant_sales: lubSales, 
+                            lubricant_receipts: lubReceipts, 
+                            userId: userId, 
+                            reading_date: dateInput 
+                        })
                     });
                 }
 
-                // Reset inputs
                 nozzleConfigs.forEach(t => {
                     const el = document.getElementById(t.inputId);
                     if (el) el.value = "";
                 });
 
-                alert("🎉 Shift Closed! Fuel metrics aur Mobil Oil Inventory sab data automatic safe synchronised update ho gaya hai.");
+                alert("🎉 Shift Closed! Fuel metrics aur Mobil Oil Inventory sab data automatic save ho gaya hai.");
 
                 await loadCurrentStatusFromDB();
 
             } catch (err) {
                 console.error("Save process broke down:", err);
-                alert("System error or connection field array layout mismatch.");
+                alert("System error!");
                 await loadCurrentStatusFromDB();
             }
         }

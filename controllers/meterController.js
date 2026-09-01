@@ -16,6 +16,27 @@ const formatDate = (dateInput) => {
     return `${year}-${month}-${day}`;
 };
 
+// 0. GET ALL FUEL RATES / PRICING
+exports.getRates = async (req, res) => {
+    try {
+        const userId = req.query.userId;
+        
+        const query = `
+            SELECT id, product_name, product_type, specific_category, 
+                   rate_per_litre, purchase_price, rate_date, user_id
+            FROM fuel_rates
+            WHERE user_id = $1 OR user_id IS NULL
+            ORDER BY id ASC
+        `;
+
+        const result = await db.query(query, [userId || null]);
+        res.json({ status: "Success", data: result.rows });
+    } catch (error) {
+        console.error("Get Rates Error:", error);
+        res.status(500).json({ status: "Error", message: error.message });
+    }
+};
+
 // 1. GET ALL LATEST NOZZLE READINGS (Filtered by user_id)
 exports.getAllReadings = async (req, res) => {
     try {
@@ -73,7 +94,7 @@ exports.getTankStock = async (req, res) => {
     }
 };
 
-// 3. GET LUBRICANT STOCK (Filtered by user_id + Auto-Initialization)
+// 3. GET LUBRICANT STOCK (Filtered by user_id + Auto-Initialization + Pricing Support)
 exports.getLubricantStock = async (req, res) => {
     try {
         const userId = req.query.userId;
@@ -81,7 +102,21 @@ exports.getLubricantStock = async (req, res) => {
             return res.status(400).json({ status: "Error", message: "User ID missing!" });
         }
 
-        let result = await db.query('SELECT item_name, current_stock FROM lubricant_stocks WHERE user_id = $1', [userId]);
+        let query = `
+            SELECT ls.item_name, ls.current_stock, 
+                   COALESCE(fr.purchase_price, fr.rate_per_litre, 0) as purchase_price
+            FROM lubricant_stocks ls
+            LEFT JOIN LATERAL (
+                SELECT purchase_price, rate_per_litre 
+                FROM fuel_rates 
+                WHERE LOWER(TRIM(product_name)) = LOWER(TRIM(ls.item_name))
+                   OR LOWER(TRIM(specific_category)) = LOWER(TRIM(ls.item_name))
+                ORDER BY id DESC LIMIT 1
+            ) fr ON true
+            WHERE ls.user_id = $1
+        `;
+
+        let result = await db.query(query, [userId]);
         let rows = result.rows;
         
         // CRASH RECOVERY: Automatic lubricant creation for new users
@@ -93,7 +128,7 @@ exports.getLubricantStock = async (req, res) => {
                     ON CONFLICT (item_name, user_id) DO NOTHING
                 `, [item, userId]);
             }
-            const retryResult = await db.query('SELECT item_name, current_stock FROM lubricant_stocks WHERE user_id = $1', [userId]);
+            const retryResult = await db.query(query, [userId]);
             rows = retryResult.rows;
         }
 
@@ -179,17 +214,17 @@ exports.updateReceipt = async (req, res) => {
         let calculatedTotal = 0;
         let finalRate = 0;
 
-        // 1️⃣ Scenario A: Agar Frontend se User ne Editable "total_amount" bheja ho
+        // 1️⃣ Scenario A: Frontend se total_amount bheja gaya ho
         if (total_amount !== undefined && total_amount !== null && total_amount !== '' && parseFloat(total_amount) > 0) {
             calculatedTotal = parseFloat(total_amount);
             finalRate = liters > 0 ? (calculatedTotal / liters) : 0;
         } 
-        // 2️⃣ Scenario B: Agar rate_per_liter bheja gaya ho
+        // 2️⃣ Scenario B: rate_per_liter bheja gaya ho
         else if (rate_per_liter && parseFloat(rate_per_liter) > 0) {
             finalRate = parseFloat(rate_per_liter);
             calculatedTotal = liters * finalRate;
         } 
-        // 3️⃣ Scenario C: Database se Latest Rate utha kar Calculate karein
+        // 3️⃣ Scenario C: Database se Latest Rate uthayen
         else {
             try {
                 let rateResult = await db.query(
@@ -227,21 +262,17 @@ exports.updateReceipt = async (req, res) => {
 
         const formattedRate = finalRate.toFixed(2);
 
-        console.log(`[RECEIPT LOG] Product: ${fuelSearchType} | Liters: ${liters} | Effective Rate: ${formattedRate} | Final Total Debit: ${calculatedTotal}`);
-
-        // Description Text
         const descriptionText = finalRate > 0 
             ? `${typeNormalized.includes('diesel') ? 'diesel' : 'petrol'} stock (${liters}L @ ${formattedRate})`
             : `${typeNormalized.includes('diesel') ? 'diesel' : 'petrol'} stock (${liters}L)`;
 
-        // 1. Ensure target row exists in fuel_stocks
+        // Update Stock & Daily Sheet Entries
         await db.query(`
             INSERT INTO fuel_stocks (fuel_type, current_stock, opening_stock, receipt_stock, user_id) 
             VALUES ($1, 0.00, 0.00, 0.00, $2)
             ON CONFLICT (fuel_type, user_id) DO NOTHING
         `, [fuel_type, userId]);
 
-        // 2. Update Stock Quantity in fuel_stocks
         await db.query(`
             UPDATE fuel_stocks 
             SET current_stock = current_stock + $1,
@@ -249,81 +280,173 @@ exports.updateReceipt = async (req, res) => {
             WHERE LOWER(TRIM(fuel_type)) = LOWER(TRIM($2)) AND user_id = $3
         `, [liters, fuel_type, userId]);
 
-        // 3. Insert Row in daily_sheets
         await db.query(`
             INSERT INTO daily_sheets (search_id, debit_udhaar, credit_vasooli, description, total_balance, sheet_date, user_id, sheet_sr_no)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `, [
-            searchId,               // 'dl' ya 'sp'
-            calculatedTotal,        // Debit amount (Editable / Calculated Total)
-            0.00,                   // Credit vasooli
-            descriptionText,        // Description
-            -calculatedTotal,       // total_balance
-            entryDate,              // Sheet Date
-            userId,                 // User ID
-            srNo                    // Sheet Sr No
+            searchId,
+            calculatedTotal,
+            0.00,
+            descriptionText,
+            -calculatedTotal,
+            entryDate,
+            userId,
+            srNo
         ]);
 
         res.json({ 
             status: "Success", 
-            message: `Stock added (${liters} Ltrs). Rs. ${calculatedTotal} debited to daily sheet ('${searchId}')!`,
-            data: {
-                liters,
-                rate: formattedRate,
-                totalAmount: calculatedTotal
-            }
+            message: `Stock added (${liters} Ltrs). Rs. ${calculatedTotal} debited!`,
+            data: { liters, rate: formattedRate, totalAmount: calculatedTotal }
         });
     } catch (error) {
         console.error("Update Receipt Error:", error);
         res.status(500).json({ status: "Error", message: error.message });
     }
 };
-// 6. BATCH UPDATE LUBRICANTS (POST)
+
+// 6. BATCH UPDATE LUBRICANTS & AUTO-RECORD TO DAILY SHEET
 exports.updateLubricants = async (req, res) => {
     try {
-        const { lubricant_sales, lubricant_receipts, userId } = req.body;
+        const { lubricant_sales, lubricant_receipts, receipt_date, sheet_sr_no, userId } = req.body;
 
         if (!userId) {
             return res.status(400).json({ status: "Error", message: "User ID missing!" });
         }
 
-        // Process Receipts (Stock Add)
+        const entryDate = formatDate(receipt_date);
+        const srNo = sheet_sr_no || 1;
+        const searchId = 'lub'; // Search ID set to 'lub'
+
+        // -------------------------------------------------------------
+        // 1. PROCESS RECEIPTS (Stock In -> Debit Entry in Daily Sheet)
+        // -------------------------------------------------------------
         if (lubricant_receipts && lubricant_receipts.length > 0) {
+            let totalReceiptAmount = 0;
+            let receiptDetails = [];
+
             for (const item of lubricant_receipts) {
-                if (item.qty > 0) {
+                const qty = parseInt(item.qty, 10) || 0;
+                if (qty > 0) {
                     await db.query(`
-                        INSERT INTO lubricant_stocks (item_name, current_stock, user_id) 
-                        VALUES ($1, 0, $2)
+                        INSERT INTO lubricant_stocks (item_name, current_stock, shift_sales_deduct, user_id) 
+                        VALUES ($1, 0, 0, $2)
                         ON CONFLICT (item_name, user_id) DO NOTHING
                     `, [item.name, userId]);
 
                     await db.query(
                         'UPDATE lubricant_stocks SET current_stock = current_stock + $1 WHERE item_name = $2 AND user_id = $3',
-                        [parseInt(item.qty, 10), item.name, userId]
+                        [qty, item.name, userId]
                     );
+
+                    let rate = parseFloat(item.price || item.rate || 0);
+                    if (rate <= 0) {
+                        const rateRes = await db.query(`
+                            SELECT purchase_price, rate_per_litre FROM fuel_rates 
+                            WHERE LOWER(TRIM(product_name)) = LOWER(TRIM($1))
+                               OR LOWER(TRIM(specific_category)) = LOWER(TRIM($1))
+                            ORDER BY id DESC LIMIT 1
+                        `, [item.name]);
+
+                        if (rateRes.rows.length > 0) {
+                            rate = parseFloat(rateRes.rows[0].purchase_price || rateRes.rows[0].rate_per_litre || 0);
+                        }
+                    }
+
+                    const itemTotal = qty * rate;
+                    totalReceiptAmount += itemTotal;
+                    
+                    const formattedRate = rate.toFixed(2);
+                    receiptDetails.push(`${qty} ${item.name} @ ${formattedRate}`);
                 }
+            }
+
+            if (receiptDetails.length > 0) {
+                const description = `Mobiloil stock receipt (${receiptDetails.join(', ')})`;
+                
+                await db.query(`
+                    INSERT INTO daily_sheets (search_id, debit_udhaar, credit_vasooli, description, total_balance, sheet_date, user_id, sheet_sr_no)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                `, [
+                    searchId,
+                    totalReceiptAmount,
+                    0.00,
+                    description,
+                    -totalReceiptAmount,
+                    entryDate,
+                    userId,
+                    srNo
+                ]);
             }
         }
 
-        // Process Sales (Stock Deduct)
+        // -------------------------------------------------------------
+        // 2. PROCESS SALES (Stock Out -> Credit Entry in Daily Sheet & Update shift_sales_deduct)
+        // -------------------------------------------------------------
         if (lubricant_sales && lubricant_sales.length > 0) {
+            let totalSalesAmount = 0;
+            let salesDetails = [];
+
             for (const item of lubricant_sales) {
-                if (item.qty > 0) {
+                const qty = parseInt(item.qty, 10) || 0;
+                if (qty > 0) {
                     await db.query(`
-                        INSERT INTO lubricant_stocks (item_name, current_stock, user_id) 
-                        VALUES ($1, 0, $2)
+                        INSERT INTO lubricant_stocks (item_name, current_stock, shift_sales_deduct, user_id) 
+                        VALUES ($1, 0, 0, $2)
                         ON CONFLICT (item_name, user_id) DO NOTHING
                     `, [item.name, userId]);
 
+                    // Update current_stock and shift_sales_deduct for profit reporting
                     await db.query(
-                        'UPDATE lubricant_stocks SET current_stock = current_stock - $1 WHERE item_name = $2 AND user_id = $3',
-                        [parseInt(item.qty, 10), item.name, userId]
+                        `UPDATE lubricant_stocks 
+                         SET current_stock = current_stock - $1,
+                             shift_sales_deduct = COALESCE(shift_sales_deduct, 0) + $1 
+                         WHERE item_name = $2 AND user_id = $3`,
+                        [qty, item.name, userId]
                     );
+
+                    let rate = parseFloat(item.price || item.rate || 0);
+                    if (rate <= 0) {
+                        const rateRes = await db.query(`
+                            SELECT rate_per_litre, purchase_price FROM fuel_rates 
+                            WHERE LOWER(TRIM(product_name)) = LOWER(TRIM($1))
+                               OR LOWER(TRIM(specific_category)) = LOWER(TRIM($1))
+                            ORDER BY id DESC LIMIT 1
+                        `, [item.name]);
+
+                        if (rateRes.rows.length > 0) {
+                            rate = parseFloat(rateRes.rows[0].rate_per_litre || rateRes.rows[0].purchase_price || 0);
+                        }
+                    }
+
+                    const itemTotal = qty * rate;
+                    totalSalesAmount += itemTotal;
+                    
+                    const formattedRate = rate.toFixed(2);
+                    salesDetails.push(`${qty} ${item.name} @ ${formattedRate}`);
                 }
+            }
+
+            if (salesDetails.length > 0) {
+                const description = `Mobiloil sale (${salesDetails.join(', ')})`;
+                
+                await db.query(`
+                    INSERT INTO daily_sheets (search_id, debit_udhaar, credit_vasooli, description, total_balance, sheet_date, user_id, sheet_sr_no)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                `, [
+                    searchId,
+                    0.00,
+                    totalSalesAmount,
+                    description,
+                    totalSalesAmount,
+                    entryDate,
+                    userId,
+                    srNo
+                ]);
             }
         }
 
-        res.json({ status: "Success", message: "Lubricant stock synced successfully!" });
+        res.json({ status: "Success", message: "Lubricant stock aur Daily Sheet entry successfully update ho gayi hain!" });
     } catch (error) {
         console.error("Update Lubricants Error:", error);
         res.status(500).json({ status: "Error", message: error.message });

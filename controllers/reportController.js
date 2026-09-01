@@ -179,46 +179,74 @@ exports.getTrialBalance = async (req, res) => {
     }
 };
 
-// 3. Get Dispenser Profit Report
+// 3. Get Dispenser Profit Report (Corrected Lubricant Sales Query)
 exports.getDispenserProfitReport = async (req, res) => {
     try {
         const { start_date, end_date, startDate, endDate, userId } = req.query;
-        const sDate = start_date || startDate;
-        const eDate = end_date || endDate;
+
+        const now = new Date();
+        const firstDayOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+        const todayStr = now.toISOString().split('T')[0];
+
+        const sDate = start_date || startDate || firstDayOfCurrentMonth;
+        const eDate = end_date || endDate || todayStr;
 
         let detailsQuery = `
             SELECT 
-                mr.id,
-                mr.reading_date,
-                COALESCE(mr.nozzle_name, '-') AS nozzle_name,
-                COALESCE(mr.fuel_type, '-') AS fuel_type,
-                COALESCE(mr.liters_sold, 0) AS liters_sold,
+                combined.id,
+                combined.reading_date,
+                combined.nozzle_name,
+                combined.fuel_type,
+                combined.liters_sold,
                 COALESCE(fr.purchase_price, 0) AS cost_rate,
                 COALESCE(fr.rate_per_litre, 0) AS selling_rate,
-                (COALESCE(mr.liters_sold, 0) * COALESCE(fr.purchase_price, 0)) AS total_cost_pkr,
-                (COALESCE(mr.liters_sold, 0) * COALESCE(fr.rate_per_litre, 0)) AS total_revenue_pkr,
-                ((COALESCE(mr.liters_sold, 0) * COALESCE(fr.rate_per_litre, 0)) - (COALESCE(mr.liters_sold, 0) * COALESCE(fr.purchase_price, 0))) AS gross_profit_pkr
-            FROM meter_readings mr
-            LEFT JOIN (
-                SELECT product_type, rate_per_litre, purchase_price
-                FROM fuel_rates
-                WHERE id IN (SELECT MAX(id) FROM fuel_rates GROUP BY product_type)
-            ) fr ON LOWER(TRIM(mr.fuel_type)) LIKE '%' || LOWER(TRIM(fr.product_type)) || '%'
-                 OR LOWER(TRIM(fr.product_type)) LIKE '%' || LOWER(TRIM(mr.fuel_type)) || '%'
-            WHERE 1=1
-        `;
-        const detailsParams = [];
+                (combined.liters_sold * COALESCE(fr.purchase_price, 0)) AS total_cost_pkr,
+                (combined.liters_sold * COALESCE(fr.rate_per_litre, 0)) AS total_revenue_pkr,
+                ((combined.liters_sold * COALESCE(fr.rate_per_litre, 0)) - (combined.liters_sold * COALESCE(fr.purchase_price, 0))) AS gross_profit_pkr
+            FROM (
+                -- Meter Readings (Super & Diesel)
+                SELECT 
+                    mr.id,
+                    mr.reading_date,
+                    COALESCE(mr.nozzle_name, 'Dispenser') AS nozzle_name,
+                    COALESCE(mr.fuel_type, 'Fuel') AS fuel_type,
+                    COALESCE(mr.liters_sold, 0) AS liters_sold,
+                    mr.user_id
+                FROM meter_readings mr
+                WHERE COALESCE(mr.liters_sold, 0) > 0
 
-        if (sDate && eDate) {
-            detailsParams.push(sDate, eDate);
-            detailsQuery += ` AND mr.reading_date::date BETWEEN $${detailsParams.length - 1} AND $${detailsParams.length}`;
-        }
+                UNION ALL
+
+                -- Lubricant Stocks (Using shift_sales_deduct as sold units)
+                SELECT 
+                    ls.id,
+                    CURRENT_DATE AS reading_date,
+                    'Mobiloil Counter' AS nozzle_name,
+                    COALESCE(ls.item_name, 'Mobiloil') AS fuel_type,
+                    COALESCE(ls.shift_sales_deduct, 0) AS liters_sold,
+                    ls.user_id
+                FROM lubricant_stocks ls
+                WHERE COALESCE(ls.shift_sales_deduct, 0) > 0
+            ) combined
+            LEFT JOIN (
+                SELECT product_name, product_type, rate_per_litre, purchase_price
+                FROM fuel_rates
+                WHERE id IN (SELECT MAX(id) FROM fuel_rates GROUP BY product_name, product_type)
+            ) fr ON LOWER(TRIM(combined.fuel_type)) = LOWER(TRIM(fr.product_name))
+                 OR LOWER(TRIM(combined.fuel_type)) = LOWER(TRIM(fr.product_type))
+                 OR LOWER(TRIM(combined.fuel_type)) LIKE '%' || LOWER(TRIM(fr.product_type)) || '%'
+                 OR LOWER(TRIM(fr.product_name)) LIKE '%' || LOWER(TRIM(combined.fuel_type)) || '%'
+            WHERE combined.reading_date::date BETWEEN $1 AND $2
+        `;
+        
+        const detailsParams = [sDate, eDate];
+
         if (userId) {
             detailsParams.push(userId);
-            detailsQuery += ` AND (mr.user_id = $${detailsParams.length} OR mr.user_id IS NULL)`;
+            detailsQuery += ` AND (combined.user_id = $${detailsParams.length} OR combined.user_id IS NULL)`;
         }
 
-        detailsQuery += ` ORDER BY mr.reading_date DESC, mr.id DESC`;
+        detailsQuery += ` ORDER BY combined.reading_date DESC, combined.id DESC`;
 
         const { rows: details } = await db.query(detailsQuery, detailsParams);
 
@@ -226,13 +254,10 @@ exports.getDispenserProfitReport = async (req, res) => {
             SELECT COALESCE(SUM(debit_udhaar), 0) AS "totalExpenses"
             FROM daily_sheets
             WHERE LOWER(TRIM(search_id)) = ANY($1::text[])
+              AND sheet_date::date BETWEEN $2 AND $3
         `;
-        const expenseParams = [EXPENSE_SEARCH_IDS];
+        const expenseParams = [EXPENSE_SEARCH_IDS, sDate, eDate];
 
-        if (sDate && eDate) {
-            expenseParams.push(sDate, eDate);
-            expenseQuery += ` AND sheet_date::date BETWEEN $${expenseParams.length - 1} AND $${expenseParams.length}`;
-        }
         if (userId) {
             expenseParams.push(userId);
             expenseQuery += ` AND user_id = $${expenseParams.length}`;
@@ -273,6 +298,126 @@ exports.getDispenserProfitReport = async (req, res) => {
             success: false,
             status: "Error",
             message: 'Dispenser Profit Report calculate nahi ho saki.',
+            error: error.message
+        });
+    }
+};
+
+// 5. Post Month-End Profit (Corrected Lubricant Sales Query)
+exports.postMonthEndProfit = async (req, res) => {
+    try {
+        const { startDate, start_date, endDate, end_date, userId } = req.body;
+        const sDate = startDate || start_date;
+        const eDate = endDate || end_date;
+
+        if (!sDate || !eDate || !userId) {
+            return res.status(400).json({
+                success: false,
+                status: "Error",
+                message: "startDate, endDate aur userId zaroori hain."
+            });
+        }
+
+        let combinedProfitQuery = `
+            SELECT 
+                combined.fuel_type,
+                SUM(
+                    (combined.liters_sold * COALESCE(fr.rate_per_litre, 0)) - 
+                    (combined.liters_sold * COALESCE(fr.purchase_price, 0))
+                ) AS item_profit
+            FROM (
+                -- Fuel Readings
+                SELECT 
+                    TRIM(mr.fuel_type) AS fuel_type,
+                    COALESCE(mr.liters_sold, 0) AS liters_sold,
+                    mr.user_id,
+                    mr.reading_date::date AS transaction_date
+                FROM meter_readings mr
+                WHERE COALESCE(mr.liters_sold, 0) > 0
+
+                UNION ALL
+
+                -- Lubricant / Mobiloil Stocks (Using shift_sales_deduct)
+                SELECT 
+                    TRIM(ls.item_name) AS fuel_type,
+                    COALESCE(ls.shift_sales_deduct, 0) AS liters_sold,
+                    ls.user_id,
+                    CURRENT_DATE AS transaction_date
+                FROM lubricant_stocks ls
+                WHERE COALESCE(ls.shift_sales_deduct, 0) > 0
+            ) combined
+            LEFT JOIN (
+                SELECT product_name, product_type, rate_per_litre, purchase_price
+                FROM fuel_rates
+                WHERE id IN (SELECT MAX(id) FROM fuel_rates GROUP BY product_name, product_type)
+            ) fr ON LOWER(TRIM(combined.fuel_type)) = LOWER(TRIM(fr.product_name))
+                 OR LOWER(TRIM(combined.fuel_type)) = LOWER(TRIM(fr.product_type))
+                 OR LOWER(TRIM(combined.fuel_type)) LIKE '%' || LOWER(TRIM(fr.product_type)) || '%'
+                 OR LOWER(TRIM(fr.product_name)) LIKE '%' || LOWER(TRIM(combined.fuel_type)) || '%'
+            WHERE combined.transaction_date BETWEEN $1 AND $2
+              AND (combined.user_id = $3 OR combined.user_id IS NULL)
+            GROUP BY combined.fuel_type
+        `;
+
+        const { rows: profits } = await db.query(combinedProfitQuery, [sDate, eDate, userId]);
+
+        if (profits.length === 0) {
+            return res.status(400).json({
+                success: false,
+                status: "Error",
+                message: "Is date range ke darmiyan koi sales ya profit nahi mili."
+            });
+        }
+
+        const addedRecords = [];
+
+        for (const row of profits) {
+            const rawItemName = (row.fuel_type || '').toLowerCase();
+            const profitAmount = parseFloat(row.item_profit) || 0;
+
+            if (profitAmount <= 0) continue;
+
+            let searchId = '';
+
+            if (rawItemName.includes('diesel') || rawItemName.includes('hsd') || rawItemName.includes('dl')) {
+                searchId = 'dl';
+            } else if (rawItemName.includes('super') || rawItemName.includes('petrol') || rawItemName.includes('sp') || rawItemName.includes('pm')) {
+                searchId = 'sp';
+            } else {
+                searchId = 'mb';
+            }
+
+            if (searchId) {
+                const description = `Month-End Profit Return (${sDate} to ${eDate}) - ${row.fuel_type}`;
+
+                await db.query(
+                    `INSERT INTO daily_sheets (search_id, debit_udhaar, credit_vasooli, description, sheet_date, user_id, total_balance) 
+                     VALUES ($1, $2, 0.00, $3, $4, $5, $6)`,
+                    [searchId, profitAmount, description, eDate, userId, -profitAmount]
+                );
+
+                addedRecords.push({
+                    search_id: searchId,
+                    debit_udhaar: profitAmount,
+                    item: row.fuel_type,
+                    sheet_date: eDate
+                });
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            status: "Success",
+            message: "Month-End profit (Fuel & Lubricants) successfully added to daily_sheets table.",
+            details: addedRecords
+        });
+
+    } catch (error) {
+        console.error('Error posting month-end profit to daily_sheets:', error);
+        return res.status(500).json({
+            success: false,
+            status: "Error",
+            message: "Month-End profit post karne mein masla aaya hai.",
             error: error.message
         });
     }
@@ -327,7 +472,7 @@ exports.getDailySummary = async (req, res) => {
     }
 };
 
-// Post Month-End Profit directly into daily_sheets
+// 5. Post Month-End Profit directly into daily_sheets (Fuel + Lubricants)
 exports.postMonthEndProfit = async (req, res) => {
     try {
         const { startDate, start_date, endDate, end_date, userId } = req.body;
@@ -342,56 +487,79 @@ exports.postMonthEndProfit = async (req, res) => {
             });
         }
 
-        let fuelProfitQuery = `
+        let combinedProfitQuery = `
             SELECT 
-                TRIM(mr.fuel_type) AS fuel_type,
+                combined.fuel_type,
                 SUM(
-                    (COALESCE(mr.liters_sold, 0) * COALESCE(fr.rate_per_litre, 0)) - 
-                    (COALESCE(mr.liters_sold, 0) * COALESCE(fr.purchase_price, 0))
-                ) AS fuel_profit
-            FROM meter_readings mr
+                    (combined.liters_sold * COALESCE(fr.rate_per_litre, 0)) - 
+                    (combined.liters_sold * COALESCE(fr.purchase_price, 0))
+                ) AS item_profit
+            FROM (
+                -- Fuel Readings
+                SELECT 
+                    TRIM(mr.fuel_type) AS fuel_type,
+                    COALESCE(mr.liters_sold, 0) AS liters_sold,
+                    mr.user_id,
+                    mr.reading_date::date AS transaction_date
+                FROM meter_readings mr
+                WHERE COALESCE(mr.liters_sold, 0) > 0
+
+                UNION ALL
+
+                -- Lubricant / Mobiloil Stocks
+                SELECT 
+                    TRIM(ls.item_name) AS fuel_type,
+                    COALESCE(ls.current_stock, 0) AS liters_sold,
+                    ls.user_id,
+                    CURRENT_DATE AS transaction_date
+                FROM lubricant_stocks ls
+                WHERE COALESCE(ls.current_stock, 0) > 0
+            ) combined
             LEFT JOIN (
-                SELECT product_type, rate_per_litre, purchase_price
+                SELECT product_name, product_type, rate_per_litre, purchase_price
                 FROM fuel_rates
-                WHERE id IN (SELECT MAX(id) FROM fuel_rates GROUP BY product_type)
-            ) fr ON LOWER(TRIM(mr.fuel_type)) LIKE '%' || LOWER(TRIM(fr.product_type)) || '%'
-                 OR LOWER(TRIM(fr.product_type)) LIKE '%' || LOWER(TRIM(mr.fuel_type)) || '%'
-            WHERE mr.reading_date::date BETWEEN $1 AND $2
-              AND (mr.user_id = $3 OR mr.user_id IS NULL)
-            GROUP BY mr.fuel_type
+                WHERE id IN (SELECT MAX(id) FROM fuel_rates GROUP BY product_name, product_type)
+            ) fr ON LOWER(TRIM(combined.fuel_type)) = LOWER(TRIM(fr.product_name))
+                 OR LOWER(TRIM(combined.fuel_type)) = LOWER(TRIM(fr.product_type))
+                 OR LOWER(TRIM(combined.fuel_type)) LIKE '%' || LOWER(TRIM(fr.product_type)) || '%'
+                 OR LOWER(TRIM(fr.product_name)) LIKE '%' || LOWER(TRIM(combined.fuel_type)) || '%'
+            WHERE combined.transaction_date BETWEEN $1 AND $2
+              AND (combined.user_id = $3 OR combined.user_id IS NULL)
+            GROUP BY combined.fuel_type
         `;
 
-        const { rows: profits } = await db.query(fuelProfitQuery, [sDate, eDate, userId]);
+        const { rows: profits } = await db.query(combinedProfitQuery, [sDate, eDate, userId]);
 
         if (profits.length === 0) {
             return res.status(400).json({
                 success: false,
                 status: "Error",
-                message: "Is date range ke darmiyan koi fuel sales ya profit nahi mili."
+                message: "Is date range ke darmiyan koi sales ya profit nahi mili."
             });
         }
 
         const addedRecords = [];
 
         for (const row of profits) {
-            const rawFuelName = (row.fuel_type || '').toLowerCase();
-            const profitAmount = parseFloat(row.fuel_profit) || 0;
+            const rawItemName = (row.fuel_type || '').toLowerCase();
+            const profitAmount = parseFloat(row.item_profit) || 0;
 
             if (profitAmount <= 0) continue;
 
             let searchId = '';
 
-            // Search IDs Mapping (dl for Diesel, sp for Super/Petrol)
-            if (rawFuelName.includes('diesel') || rawFuelName.includes('hsd') || rawFuelName.includes('dl')) {
+            // Mapping Search IDs (dl = Diesel, sp = Super, mb = Mobiloil/Lubricants)
+            if (rawItemName.includes('diesel') || rawItemName.includes('hsd') || rawItemName.includes('dl')) {
                 searchId = 'dl';
-            } else if (rawFuelName.includes('super') || rawFuelName.includes('petrol') || rawFuelName.includes('sp') || rawFuelName.includes('pm')) {
+            } else if (rawItemName.includes('super') || rawItemName.includes('petrol') || rawItemName.includes('sp') || rawItemName.includes('pm')) {
                 searchId = 'sp';
+            } else {
+                searchId = 'mb'; // Lubricants / Mobiloil
             }
 
             if (searchId) {
-                const description = `Month-End Profit Return (${sDate} to ${eDate})`;
+                const description = `Month-End Profit Return (${sDate} to ${eDate}) - ${row.fuel_type}`;
 
-                // Insert into daily_sheets table
                 await db.query(
                     `INSERT INTO daily_sheets (search_id, debit_udhaar, credit_vasooli, description, sheet_date, user_id, total_balance) 
                      VALUES ($1, $2, 0.00, $3, $4, $5, $6)`,
@@ -401,10 +569,8 @@ exports.postMonthEndProfit = async (req, res) => {
                 addedRecords.push({
                     search_id: searchId,
                     debit_udhaar: profitAmount,
-                    credit_vasooli: 0,
-                    description: description,
-                    sheet_date: eDate,
-                    user_id: userId
+                    item: row.fuel_type,
+                    sheet_date: eDate
                 });
             }
         }
@@ -412,7 +578,7 @@ exports.postMonthEndProfit = async (req, res) => {
         return res.status(200).json({
             success: true,
             status: "Success",
-            message: "Month-End fuel profit successfully added to daily_sheets table.",
+            message: "Month-End profit (Fuel & Lubricants) successfully added to daily_sheets table.",
             details: addedRecords
         });
 
