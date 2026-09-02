@@ -64,12 +64,18 @@
                 </tr>
                 <tr>
                     <td class="row-desc">Closing Meter (Ltr)</td>
-                    <td><input type="number" step="any" id="close_diesel_n1" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
-                    <td><input type="number" step="any" id="close_diesel_n2" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
-                    <td><input type="number" step="any" id="close_diesel_n3" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
-                    <td><input type="number" step="any" id="close_diesel_n4" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
-                    <td><input type="number" step="any" id="close_super_n1" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
-                    <td><input type="number" step="any" id="close_super_n2" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_diesel_n1" class="matrix-input"
+                            oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_diesel_n2" class="matrix-input"
+                            oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_diesel_n3" class="matrix-input"
+                            oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_diesel_n4" class="matrix-input"
+                            oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_super_n1" class="matrix-input"
+                            oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_super_n2" class="matrix-input"
+                            oninput="calculateLiveSales()" placeholder="0"></td>
                 </tr>
                 <tr style="background-color: #eaeded;">
                     <td class="row-desc">Calculated Sales (Ltr)</td>
@@ -105,13 +111,19 @@
                 </tr>
                 <tr>
                     <td class="row-desc">New Supply Receipt (+) [Ltr]</td>
-                    <td><input type="number" step="any" id="receipt_diesel" class="matrix-input" value="0" oninput="onReceiptLitersChanged('diesel')"></td>
-                    <td><input type="number" step="any" id="receipt_super" class="matrix-input" value="0" oninput="onReceiptLitersChanged('super')"></td>
+                    <td><input type="number" step="any" id="receipt_diesel" class="matrix-input" value="0"
+                            oninput="onReceiptLitersChanged('diesel')"></td>
+                    <td><input type="number" step="any" id="receipt_super" class="matrix-input" value="0"
+                            oninput="onReceiptLitersChanged('super')"></td>
                 </tr>
                 <tr style="background-color: #e8f8f5;">
                     <td class="row-desc"><strong>Total Stock Receipt Amount (Rs.)</strong></td>
-                    <td><input type="number" step="any" id="amount_diesel" class="matrix-input" style="font-weight:bold; color:#27ae60;" value="0.00" oninput="calculateLiveSales()" placeholder="0.00"></td>
-                    <td><input type="number" step="any" id="amount_super" class="matrix-input" style="font-weight:bold; color:#27ae60;" value="0.00" oninput="calculateLiveSales()" placeholder="0.00"></td>
+                    <td><input type="number" step="any" id="amount_diesel" class="matrix-input"
+                            style="font-weight:bold; color:#27ae60;" value="0.00" oninput="calculateLiveSales()"
+                            placeholder="0.00"></td>
+                    <td><input type="number" step="any" id="amount_super" class="matrix-input"
+                            style="font-weight:bold; color:#27ae60;" value="0.00" oninput="calculateLiveSales()"
+                            placeholder="0.00"></td>
                 </tr>
                 <tr style="background-color: #eaeded;">
                     <td class="row-desc">Sales Deductions (-)</td>
@@ -159,8 +171,8 @@
 
         let tankOpeningStock = { 'Diesel': 0, 'Super': 0 };
         let lubricantOpeningStock = {};
-        let lubricantPricingMap = {}; 
-        
+        let lubricantPricingMap = {};
+
         let dbRates = { 'diesel': 0, 'super': 0 };
 
         function getTodayDateString() {
@@ -175,7 +187,7 @@
         function getMatchedRate(itemName) {
             if (!itemName) return 0;
             const target = itemName.toLowerCase().replace(/[^a-z0-9]/g, '');
-            
+
             // 1. Direct match check
             if (lubricantPricingMap[target]) return lubricantPricingMap[target];
 
@@ -215,15 +227,15 @@
                             const pType = rate.product_type ? rate.product_type.trim().toLowerCase() : '';
                             const pName = rate.product_name ? rate.product_name.trim().toLowerCase() : '';
                             const catName = rate.specific_category ? rate.specific_category.trim().toLowerCase() : '';
-                            
+
                             // Pick purchase_price first, fallback to rate_per_litre if 0
-                            const rateVal = parseFloat(rate.purchase_price) > 0 
-                                            ? parseFloat(rate.purchase_price) 
-                                            : (parseFloat(rate.rate_per_litre) || 0);
-                            
+                            const rateVal = parseFloat(rate.purchase_price) > 0
+                                ? parseFloat(rate.purchase_price)
+                                : (parseFloat(rate.rate_per_litre) || 0);
+
                             if (pType === 'diesel') dbRates['diesel'] = rateVal;
                             if (pType === 'super') dbRates['super'] = rateVal;
-                            
+
                             if (pName) lubricantPricingMap[pName] = rateVal;
                             if (catName) lubricantPricingMap[catName] = rateVal;
                         });
@@ -278,7 +290,7 @@
                         lubResult.data.forEach((row, index) => {
                             const itemName = row.item_name;
                             lubricantOpeningStock[itemName] = parseInt(row.current_stock) || 0;
-                            
+
                             // Smart fetch matched price
                             const autoRate = getMatchedRate(itemName);
                             const defaultPrice = autoRate > 0 ? autoRate : (parseFloat(row.purchase_price) || 0);
@@ -348,7 +360,7 @@
             if (currentRate === 0) {
                 const tr = document.getElementById(`lub_rec_${index}`)?.closest('tr');
                 const itemName = tr ? tr.getElementsByClassName('row-desc')[0]?.textContent.trim() : '';
-                
+
                 const matchedRate = getMatchedRate(itemName);
                 if (matchedRate > 0) {
                     currentRate = matchedRate;
@@ -450,7 +462,7 @@
             try {
                 const recDiesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
                 const recSuper = parseFloat(document.getElementById('receipt_super')?.value) || 0;
-                
+
                 const amountDiesel = parseFloat(document.getElementById('amount_diesel')?.value) || 0;
                 const amountSuper = parseFloat(document.getElementById('amount_super')?.value) || 0;
 
@@ -463,13 +475,13 @@
                         fetch(`${API_URL}/update-receipt`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                fuel_type: 'Diesel', 
-                                receipt_liters: recDiesel, 
+                            body: JSON.stringify({
+                                fuel_type: 'Diesel',
+                                receipt_liters: recDiesel,
                                 total_amount: amountDiesel,
                                 rate: calculatedRateDiesel,
-                                userId: userId, 
-                                reading_date: dateInput 
+                                userId: userId,
+                                reading_date: dateInput
                             })
                         })
                     );
@@ -479,13 +491,13 @@
                         fetch(`${API_URL}/update-receipt`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                fuel_type: 'Super', 
-                                receipt_liters: recSuper, 
+                            body: JSON.stringify({
+                                fuel_type: 'Super',
+                                receipt_liters: recSuper,
                                 total_amount: amountSuper,
                                 rate: calculatedRateSuper,
-                                userId: userId, 
-                                reading_date: dateInput 
+                                userId: userId,
+                                reading_date: dateInput
                             })
                         })
                     );
@@ -543,8 +555,8 @@
                             const calculatedRate = recVal > 0 ? (amountVal / recVal) : rateVal;
 
                             if (saleVal > 0) lubSales.push({ name: name, qty: saleVal });
-                            if (recVal > 0) lubReceipts.push({ 
-                                name: name, 
+                            if (recVal > 0) lubReceipts.push({
+                                name: name,
                                 qty: recVal,
                                 total_amount: amountVal,
                                 rate: calculatedRate
@@ -557,11 +569,11 @@
                     await fetch(`${API_URL}/update-lubricants`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            lubricant_sales: lubSales, 
-                            lubricant_receipts: lubReceipts, 
-                            userId: userId, 
-                            reading_date: dateInput 
+                        body: JSON.stringify({
+                            lubricant_sales: lubSales,
+                            lubricant_receipts: lubReceipts,
+                            userId: userId,
+                            reading_date: dateInput
                         })
                     });
                 }
@@ -589,6 +601,34 @@
                 dateInput.addEventListener('change', loadCurrentStatusFromDB);
             }
             loadCurrentStatusFromDB();
+
+            // 🟢 Enter press hone par agle input par focus bhejne ka logic
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    const target = e.target;
+
+                    // Sirf input elements par ye trigger ho (Buttons ya Textarea par nahi)
+                    if (target.tagName === 'INPUT' && target.type !== 'submit' && target.type !== 'button') {
+                        e.preventDefault(); // Default form submit behavior roknay ke liye
+
+                        // Form ke tamam interactable inputs ki list
+                        const focusable = Array.from(
+                            document.querySelectorAll('input:not([type="hidden"]):not([disabled]), select, button:not([disabled])')
+                        );
+
+                        const currentIndex = focusable.indexOf(target);
+
+                        if (currentIndex > -1 && currentIndex + 1 < focusable.length) {
+                            focusable[currentIndex + 1].focus(); // Agle input par focus
+
+                            // Agar agla input text/number hai to text select ho jaye
+                            if (focusable[currentIndex + 1].select) {
+                                focusable[currentIndex + 1].select();
+                            }
+                        }
+                    }
+                }
+            });
         });
 
         document.getElementById('logoutBtn').addEventListener('click', () => {

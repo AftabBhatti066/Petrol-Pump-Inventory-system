@@ -45,9 +45,7 @@ app.get('/api/rates', async (req, res) => {
             return res.json({ status: "Success", data: [] });
         }
 
-        // Supabase / PostgreSQL Direct Safe Query
         try {
-            // Check in fuel_rates table
             const result = await db.query(
                 'SELECT product_type, purchase_price FROM fuel_rates WHERE user_id = $1', 
                 [userId]
@@ -57,7 +55,6 @@ app.get('/api/rates', async (req, res) => {
             console.warn("fuel_rates table check failed, checking pricing table...");
             
             try {
-                // Fallback to pricing table if fuel_rates doesn't exist
                 const result = await db.query(
                     'SELECT product_type, purchase_price FROM pricing WHERE user_id = $1', 
                     [userId]
@@ -73,6 +70,7 @@ app.get('/api/rates', async (req, res) => {
         return res.json({ status: "Success", data: [] });
     }
 });
+
 const meterRoutes = require('./routes/meterRoutes');
 app.use('/api/meter', meterRoutes);
 
@@ -81,6 +79,17 @@ app.use('/api/ledger', ledgerRoutes);
 
 const dailySheetRoutes = require('./routes/dailySheetRoutes');
 app.use('/api/daily-sheet', dailySheetRoutes);
+
+// ------------------------------------------
+// 📝 DIRECT SINGLE ENTRY ROUTES (FIX FOR DUPLICATES)
+// ------------------------------------------
+const dailySheetController = require('./controllers/dailySheetController');
+if (dailySheetController.saveSingleEntry && dailySheetController.updateSingleEntry) {
+    app.post('/api/entry', dailySheetController.saveSingleEntry);
+    app.put('/api/entry/:id', dailySheetController.updateSingleEntry);
+    app.post('/entry', dailySheetController.saveSingleEntry);
+    app.put('/entry/:id', dailySheetController.updateSingleEntry);
+}
 
 const dashboardRoutes = require('./routes/dashboardRoutes');
 app.use('/api/dashboard', dashboardRoutes);

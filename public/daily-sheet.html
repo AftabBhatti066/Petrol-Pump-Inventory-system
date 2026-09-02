@@ -36,12 +36,9 @@
         </div>
     </div>
 
-    <div class="section-header-box" style="display: flex; justify-content: space-between; align-items: center;">
+    <div class="section-header-box">
         <span>Daily Sheet (Amount-Based Entries Only)</span>
-        <!-- DYNAMIC AUTO-SAVE STATUS INDICATOR -->
-        <span id="autoSaveIndicator" style="font-weight: bold; font-size: 12px; color: #27ae60; background: #ffffff; padding: 3px 8px; border-radius: 4px; border: 1px solid #27ae60;">
-            ✓ All Changes Saved
-        </span>
+        <span id="save_status_indicator" style="font-weight: normal; font-size: 12px; color: #27ae60; transition: all 0.3s;">Status: Auto-Save Ready</span>
     </div>
 
     <div class="control-panel"
@@ -86,7 +83,7 @@
         <tbody id="sheetTableBody">
         </tbody>
     </table>
-    <button class="btn-save-sheet" onclick="saveAllSheetEntries(false)">💾 Save Daily Sheet</button>
+    <button class="btn-save-sheet" onclick="saveAllSheetEntries(true)">💾 Save Daily Sheet</button>
     <div class="summary-bar">
         <div>
             <span>Total Debit: <span id="lbl_total_debit" style="color: #c0392b;">0</span></span>
@@ -102,28 +99,8 @@
         const API_URL = '/api/daily-sheet';
         let customerMap = {};
         let currentDayOpeningBalance = 0;
-
-        // --- AUTO SAVE DEBOUNCE TIMER ---
         let autoSaveTimer = null;
-        let isSavingInProgress = false;
-
-        function updateAutoSaveStatus(statusText, color = '#27ae60', borderColor = '#27ae60') {
-            const indicator = document.getElementById('autoSaveIndicator');
-            if (indicator) {
-                indicator.textContent = statusText;
-                indicator.style.color = color;
-                indicator.style.borderColor = borderColor;
-            }
-        }
-
-        // Trigger Auto Save when user changes input values
-        function triggerAutoSave() {
-            updateAutoSaveStatus("⏳ Unsaved Changes...", "#e67e22", "#e67e22");
-            clearTimeout(autoSaveTimer);
-            autoSaveTimer = setTimeout(() => {
-                saveAllSheetEntries(true); // Silent Auto Save
-            }, 1000); // 1 Second Delay after user stops typing
-        }
+        let isSaving = false;
 
         // --- DATE CONVERSION UTILITIES ---
         function getTodayDDMMYYYY() {
@@ -156,6 +133,19 @@
                     index++;
                 }
             });
+        }
+
+        // AUTO-SAVE TRIGGER WITH DEBOUNCE (1.5 Seconds Delay)
+        function triggerAutoSave() {
+            const statusLabel = document.getElementById('save_status_indicator');
+            if (statusLabel) {
+                statusLabel.style.color = '#e67e22';
+                statusLabel.textContent = 'Status: Changes Pending...';
+            }
+            clearTimeout(autoSaveTimer);
+            autoSaveTimer = setTimeout(() => {
+                saveAllSheetEntries(false);
+            }, 1500);
         }
 
         async function loadCustomerMasterMap() {
@@ -252,7 +242,6 @@
             if (!entries || entries.length === 0) {
                 addNewEmptyRow(false);
                 recalculateTotals();
-                updateAutoSaveStatus("✓ All Changes Saved", "#27ae60", "#27ae60");
                 return;
             }
 
@@ -263,7 +252,6 @@
             addNewEmptyRow(false);
             reindexSerialNumbers();
             recalculateTotals();
-            updateAutoSaveStatus("✓ All Changes Saved", "#27ae60", "#27ae60");
 
             const filterInput = document.getElementById('sheet_search_filter');
             if (filterInput) filterInput.value = '';
@@ -291,7 +279,7 @@
             tr.innerHTML = `
             <td class="text-center text-bold serial-no">${srNo}</td>
             <td class="text-center">
-                <input type="text" class="sheet-input input-search-id" value="${searchIdVal}" placeholder="Search ID" oninput="onSearchIdInput(this); triggerAutoSave();" onkeydown="handleEnterNavigation(event, 'search_id')">
+                <input type="text" class="sheet-input input-search-id" value="${searchIdVal}" placeholder="Search ID" oninput="onSearchIdInput(this)" onkeydown="handleEnterNavigation(event, 'search_id')">
             </td>
             <td>
                 <input type="text" class="sheet-input input-cust-name" value="${custName}" placeholder="Auto Name" readonly style="background-color: #f8f9fa; font-weight: bold; color: #000;">
@@ -339,6 +327,8 @@
                 nameInput.value = 'Not Found';
                 nameInput.style.color = '#c0392b';
             }
+
+            triggerAutoSave();
         }
 
         function isRowFilled(tr) {
@@ -464,7 +454,6 @@
                     if (sInput) {
                         sInput.value = searchId;
                         onSearchIdInput(sInput);
-                        triggerAutoSave();
                         emptyTr.querySelector('.input-description').focus();
                     }
                 }
@@ -571,7 +560,6 @@
 
                     addNewEmptyRow(false);
                     reindexSerialNumbers();
-                    triggerAutoSave();
 
                     alert("🎉 Customer Master List mein add ho gaya!");
                 } else {
@@ -582,9 +570,9 @@
             }
         }
 
-        // --- ENHANCED SAVE ALL SHEET ENTRIES WITH AUTO-SAVE SUPPORT ---
-        async function saveAllSheetEntries(isAutoSave = false) {
-            if (isSavingInProgress) return;
+        // AUTO & MANUAL SAVE FUNCTION
+        async function saveAllSheetEntries(isManual = false) {
+            if (isSaving) return;
 
             const rawDateVal = document.getElementById('working_date').value;
             const formattedISO = parseDDMMYYYYtoISO(rawDateVal.trim());
@@ -593,6 +581,7 @@
             const rows = tbody.querySelectorAll('tr');
             const userId = localStorage.getItem('userId');
             const saveBtn = document.querySelector('.btn-save-sheet');
+            const statusLabel = document.getElementById('save_status_indicator');
 
             if (rows.length === 0) return;
 
@@ -641,20 +630,19 @@
             });
 
             if (entries.length === 0) {
-                if (!isAutoSave) {
-                    alert("⚠️ Save karne ke liye koi valid transaction (Debit ya Credit amount) nahi mili!");
-                }
-                updateAutoSaveStatus("✓ All Changes Saved", "#27ae60", "#27ae60");
+                if (isManual) alert("⚠️ Save karne ke liye koi valid transaction (Debit ya Credit amount) nahi mili!");
                 return;
             }
 
             try {
-                isSavingInProgress = true;
-                updateAutoSaveStatus("⏳ Auto Saving...", "#e67e22", "#e67e22");
-
-                if (!isAutoSave && saveBtn) {
+                isSaving = true;
+                if (saveBtn) {
                     saveBtn.disabled = true;
-                    saveBtn.innerText = "⏳ Saving...";
+                    saveBtn.innerText = "⏳ Auto-Saving...";
+                }
+                if (statusLabel) {
+                    statusLabel.style.color = '#3498db';
+                    statusLabel.textContent = 'Status: Saving...';
                 }
 
                 const res = await fetch(`${API_URL}/save`, {
@@ -665,38 +653,53 @@
 
                 const result = await res.json();
                 if (result.status === "Success" || res.ok) {
-                    updateAutoSaveStatus("✓ Saved Automatically", "#27ae60", "#27ae60");
-                    if (!isAutoSave) {
-                        alert("🎉 Data Save Ho Gaya!");
+                    if (statusLabel) {
+                        statusLabel.style.color = '#27ae60';
+                        statusLabel.textContent = 'Status: ✅ Auto-Saved';
                     }
-                    
-                    // Naye DB record IDs ko rows ke attributes mein update kar dein taake dobara save hone par update hi ho
-                    if (result.data || result.entries) {
-                        const savedData = result.data || result.entries;
-                        if (Array.isArray(savedData)) {
-                            savedData.forEach((savedItem) => {
-                                const matchingRow = Array.from(rows).find(tr => {
-                                    const sInput = tr.querySelector('.input-search-id');
-                                    return sInput && sInput.value.trim().toLowerCase() === String(savedItem.search_id).trim().toLowerCase();
-                                });
-                                if (matchingRow && savedItem.id) {
-                                    matchingRow.setAttribute('data-id', savedItem.id);
-                                    matchingRow.setAttribute('data-db-id', savedItem.id);
+                    if (isManual) alert("🎉 Data Save Ho Gaya!");
+
+                    // Map server-assigned IDs to rows so future updates edit existing rows
+                    const savedEntries = result.entries || result.data || [];
+                    if (Array.isArray(savedEntries) && savedEntries.length > 0) {
+                        const trElements = tbody.querySelectorAll('tr');
+                        savedEntries.forEach(sEntry => {
+                            trElements.forEach(tr => {
+                                const sInput = tr.querySelector('.input-search-id');
+                                const dInput = tr.querySelector('.input-debit');
+                                const cInput = tr.querySelector('.input-credit');
+                                
+                                if (sInput && sInput.value.trim().toLowerCase() === String(sEntry.search_id).trim().toLowerCase() &&
+                                    parseFloat(dInput?.value || 0) === (parseFloat(sEntry.debit_udhaar) || parseFloat(sEntry.debit) || 0) &&
+                                    parseFloat(cInput?.value || 0) === (parseFloat(sEntry.credit_vasooli) || parseFloat(sEntry.credit) || 0) &&
+                                    !tr.getAttribute('data-id')) {
+                                    
+                                    if (sEntry.id) {
+                                        tr.setAttribute('data-id', sEntry.id);
+                                        tr.setAttribute('data-db-id', sEntry.id);
+                                    }
                                 }
                             });
-                        }
+                        });
                     }
+
                 } else {
-                    updateAutoSaveStatus("❌ Auto Save Failed", "#c0392b", "#c0392b");
-                    if (!isAutoSave) alert("Error: " + (result.message || result.db_error));
+                    if (statusLabel) {
+                        statusLabel.style.color = '#c0392b';
+                        statusLabel.textContent = 'Status: ⚠️ Save Error';
+                    }
+                    if (isManual) alert("Error: " + (result.message || result.db_error));
                 }
             } catch (err) {
                 console.error("Saving error:", err);
-                updateAutoSaveStatus("❌ Connection Error", "#c0392b", "#c0392b");
-                if (!isAutoSave) alert("Server communication error while saving!");
+                if (statusLabel) {
+                    statusLabel.style.color = '#c0392b';
+                    statusLabel.textContent = 'Status: ⚠️ Server Error';
+                }
+                if (isManual) alert("Server communication error while saving!");
             } finally {
-                isSavingInProgress = false;
-                if (!isAutoSave && saveBtn) {
+                isSaving = false;
+                if (saveBtn) {
                     saveBtn.disabled = false;
                     saveBtn.innerText = "💾 Save Daily Sheet";
                 }
