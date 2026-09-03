@@ -31,7 +31,8 @@
     <div class="action-bar">
         <button class="btn-save" onclick="saveAllReadings()">💾 Save & Close Day</button>
         <button class="btn-reset" onclick="loadCurrentStatusFromDB()">🔄 Refresh Screen</button>
-        <div><strong>Working Date:</strong> <input type="date" id="working_date" value="2026-08-19"></div>
+        <div><strong>Working Date:</strong> <input type="date" id="working_date" onchange="loadCurrentStatusFromDB()">
+        </div>
         <div class="info-tag" id="syncStatus">🔄 Syncing with DB...</div>
     </div>
 
@@ -183,15 +184,12 @@
             return `${year}-${month}-${day}`;
         }
 
-        // Helper function for smart fuzzy matching product names
         function getMatchedRate(itemName) {
             if (!itemName) return 0;
             const target = itemName.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-            // 1. Direct match check
             if (lubricantPricingMap[target]) return lubricantPricingMap[target];
 
-            // 2. Loose match check
             for (let key in lubricantPricingMap) {
                 const cleanKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
                 if (cleanKey.includes(target) || target.includes(cleanKey)) {
@@ -218,7 +216,7 @@
 
                 const workingDate = document.getElementById('working_date')?.value || getTodayDateString();
 
-                // 1. Fetch Rates (Pass userId & fallbacks for NULL user_id records)
+                // 1. Fetch Rates
                 try {
                     const ratesResponse = await fetch(`/api/rates?userId=${userId}`);
                     const ratesResult = await ratesResponse.json();
@@ -228,7 +226,6 @@
                             const pName = rate.product_name ? rate.product_name.trim().toLowerCase() : '';
                             const catName = rate.specific_category ? rate.specific_category.trim().toLowerCase() : '';
 
-                            // Pick purchase_price first, fallback to rate_per_litre if 0
                             const rateVal = parseFloat(rate.purchase_price) > 0
                                 ? parseFloat(rate.purchase_price)
                                 : (parseFloat(rate.rate_per_litre) || 0);
@@ -244,7 +241,7 @@
                     console.log("Could not auto-fetch pricing rates", e);
                 }
 
-                // 2. Nozzle readings load
+                // 2. Fetch Nozzle Meter Readings
                 const response = await fetch(`${API_URL}/all?userId=${userId}&date=${workingDate}`);
                 const result = await response.json();
                 if (result.status === "Success" && result.data) {
@@ -257,7 +254,7 @@
                     updateNozzleOpening('Super (N2)', 'open_super_n2', records);
                 }
 
-                // 3. Fuel Tank stock load
+                // 3. Fetch Underground Tank Stock
                 const stockResponse = await fetch(`${API_URL}/tank-stock?userId=${userId}&date=${workingDate}`);
                 const stockResult = await stockResponse.json();
 
@@ -277,7 +274,7 @@
                 if (openDieselEl) openDieselEl.textContent = tankOpeningStock['Diesel'].toFixed(2);
                 if (openSuperEl) openSuperEl.textContent = tankOpeningStock['Super'].toFixed(2);
 
-                // 4. Mobil Oil Lubricant Stock Load
+                // 4. Fetch Lubricants (Fix applied for shift_sales_deduct)
                 const lubResponse = await fetch(`${API_URL}/lubricant-stock?userId=${userId}&date=${workingDate}`);
                 const lubResult = await lubResponse.json();
 
@@ -291,20 +288,22 @@
                             const itemName = row.item_name;
                             lubricantOpeningStock[itemName] = parseInt(row.current_stock) || 0;
 
-                            // Smart fetch matched price
                             const autoRate = getMatchedRate(itemName);
                             const defaultPrice = autoRate > 0 ? autoRate : (parseFloat(row.purchase_price) || 0);
 
+                            // Pehle yahan sales value hamesha 0 hardcoded thi, ab DB ka value 'shift_sales_deduct' bind kar diya gaya hai:
+                            const salesDeductValue = parseInt(row.shift_sales_deduct) || 0;
+
                             const tr = document.createElement('tr');
                             tr.innerHTML = `
-                                <td class="row-desc">${itemName}</td>
-                                <td><span id="lub_open_${index}" class="val-blue">${row.current_stock}</span></td>
-                                <td><input type="number" id="lub_rec_${index}" class="matrix-input" value="0" oninput="onLubricantReceiptChanged(${index})"></td>
-                                <td><input type="number" step="any" id="lub_rate_${index}" class="matrix-input" value="${defaultPrice}" oninput="onLubricantReceiptChanged(${index})" placeholder="0.00"></td>
-                                <td><input type="number" step="any" id="lub_amount_${index}" class="matrix-input" style="font-weight:bold; color:#27ae60;" value="0.00" oninput="onLubricantAmountManualChanged(${index})" placeholder="0.00"></td>
-                                <td><input type="number" id="lub_sale_${index}" class="matrix-input" value="0" oninput="calculateLiveSales()"></td>
-                                <td><span id="lub_close_${index}" class="val-purple">${row.current_stock}</span></td>
-                            `;
+                        <td class="row-desc">${itemName}</td>
+                        <td><span id="lub_open_${index}" class="val-blue">${row.current_stock}</span></td>
+                        <td><input type="number" id="lub_rec_${index}" class="matrix-input" value="0" oninput="onLubricantReceiptChanged(${index})"></td>
+                        <td><input type="number" step="any" id="lub_rate_${index}" class="matrix-input" value="${defaultPrice}" oninput="onLubricantReceiptChanged(${index})" placeholder="0.00"></td>
+                        <td><input type="number" step="any" id="lub_amount_${index}" class="matrix-input" style="font-weight:bold; color:#27ae60;" value="0.00" oninput="onLubricantAmountManualChanged(${index})" placeholder="0.00"></td>
+                        <td><input type="number" id="lub_sale_${index}" class="matrix-input" value="${salesDeductValue}" oninput="calculateLiveSales()"></td>
+                        <td><span id="lub_close_${index}" class="val-purple">${row.current_stock}</span></td>
+                    `;
                             tbody.appendChild(tr);
                         });
                     } else {
@@ -356,7 +355,6 @@
             let rateInput = document.getElementById(`lub_rate_${index}`);
             let currentRate = parseFloat(rateInput?.value) || 0;
 
-            // Agar rate input box zero ho, to table se name le kar smart-match karke rate auto fill karein
             if (currentRate === 0) {
                 const tr = document.getElementById(`lub_rec_${index}`)?.closest('tr');
                 const itemName = tr ? tr.getElementsByClassName('row-desc')[0]?.textContent.trim() : '';
@@ -554,7 +552,8 @@
                             const amountVal = parseFloat(document.getElementById(`lub_amount_${i}`)?.value) || (recVal * rateVal);
                             const calculatedRate = recVal > 0 ? (amountVal / recVal) : rateVal;
 
-                            if (saleVal > 0) lubSales.push({ name: name, qty: saleVal });
+                            lubSales.push({ name: name, qty: saleVal });
+
                             if (recVal > 0) lubReceipts.push({
                                 name: name,
                                 qty: recVal,
@@ -598,44 +597,8 @@
             const dateInput = document.getElementById('working_date');
             if (dateInput) {
                 dateInput.value = getTodayDateString();
-                dateInput.addEventListener('change', loadCurrentStatusFromDB);
             }
             loadCurrentStatusFromDB();
-
-            // 🟢 Enter press hone par agle input par focus bhejne ka logic
-            document.addEventListener('keydown', function (e) {
-                if (e.key === 'Enter') {
-                    const target = e.target;
-
-                    // Sirf input elements par ye trigger ho (Buttons ya Textarea par nahi)
-                    if (target.tagName === 'INPUT' && target.type !== 'submit' && target.type !== 'button') {
-                        e.preventDefault(); // Default form submit behavior roknay ke liye
-
-                        // Form ke tamam interactable inputs ki list
-                        const focusable = Array.from(
-                            document.querySelectorAll('input:not([type="hidden"]):not([disabled]), select, button:not([disabled])')
-                        );
-
-                        const currentIndex = focusable.indexOf(target);
-
-                        if (currentIndex > -1 && currentIndex + 1 < focusable.length) {
-                            focusable[currentIndex + 1].focus(); // Agle input par focus
-
-                            // Agar agla input text/number hai to text select ho jaye
-                            if (focusable[currentIndex + 1].select) {
-                                focusable[currentIndex + 1].select();
-                            }
-                        }
-                    }
-                }
-            });
-        });
-
-        document.getElementById('logoutBtn').addEventListener('click', () => {
-            localStorage.removeItem('userId');
-            localStorage.removeItem('username');
-            alert("Aap successfully logout ho chuke hain!");
-            window.location.href = 'login.html';
         });
     </script>
 </body>

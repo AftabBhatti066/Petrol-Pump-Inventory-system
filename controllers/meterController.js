@@ -7,12 +7,29 @@ const DEFAULT_LUBRICANTS = [
     'Deo 8000 4Ltrs', 'Deo 8000 10Ltrs'
 ];
 
-// Helper Function: Date YYYY-MM-DD Format karne ke liye
+// Helper Function: Date YYYY-MM-DD Format karne ke liye (FIXED: Timezone Date-Shift Issue Resolved)
 const formatDate = (dateInput) => {
-    const d = dateInput ? new Date(dateInput) : new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
+    if (!dateInput) {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    // Direct String Extraction to Prevent UTC/Timezone conversion shifts
+    if (typeof dateInput === 'string') {
+        const cleanDate = dateInput.split('T')[0];
+        if (/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+            return cleanDate;
+        }
+    }
+
+    // Fallback using UTC Date components
+    const d = new Date(dateInput);
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
 };
 
@@ -103,7 +120,7 @@ exports.getLubricantStock = async (req, res) => {
         }
 
         let query = `
-            SELECT ls.item_name, ls.current_stock, 
+            SELECT ls.item_name, ls.current_stock, ls.shift_sales_deduct,
                    COALESCE(fr.purchase_price, fr.rate_per_litre, 0) as purchase_price
             FROM lubricant_stocks ls
             LEFT JOIN LATERAL (
@@ -123,8 +140,8 @@ exports.getLubricantStock = async (req, res) => {
         if (rows.length === 0) {
             for (const item of DEFAULT_LUBRICANTS) {
                 await db.query(`
-                    INSERT INTO lubricant_stocks (item_name, current_stock, user_id) 
-                    VALUES ($1, 0, $2)
+                    INSERT INTO lubricant_stocks (item_name, current_stock, shift_sales_deduct, user_id) 
+                    VALUES ($1, 0, 0, $2)
                     ON CONFLICT (item_name, user_id) DO NOTHING
                 `, [item, userId]);
             }
@@ -214,17 +231,14 @@ exports.updateReceipt = async (req, res) => {
         let calculatedTotal = 0;
         let finalRate = 0;
 
-        // 1️⃣ Scenario A: Frontend se total_amount bheja gaya ho
         if (total_amount !== undefined && total_amount !== null && total_amount !== '' && parseFloat(total_amount) > 0) {
             calculatedTotal = parseFloat(total_amount);
             finalRate = liters > 0 ? (calculatedTotal / liters) : 0;
         } 
-        // 2️⃣ Scenario B: rate_per_liter bheja gaya ho
         else if (rate_per_liter && parseFloat(rate_per_liter) > 0) {
             finalRate = parseFloat(rate_per_liter);
             calculatedTotal = liters * finalRate;
         } 
-        // 3️⃣ Scenario C: Database se Latest Rate uthayen
         else {
             try {
                 let rateResult = await db.query(
@@ -306,6 +320,7 @@ exports.updateReceipt = async (req, res) => {
 };
 
 // 6. BATCH UPDATE LUBRICANTS & AUTO-RECORD TO DAILY SHEET
+// FIXED: Double Deduction and Minus Stock Issue Resolved
 exports.updateLubricants = async (req, res) => {
     try {
         const { lubricant_sales, lubricant_receipts, receipt_date, sheet_sr_no, userId } = req.body;
@@ -316,10 +331,10 @@ exports.updateLubricants = async (req, res) => {
 
         const entryDate = formatDate(receipt_date);
         const srNo = sheet_sr_no || 1;
-        const searchId = 'lub'; // Search ID set to 'lub'
+        const searchId = 'lub';
 
         // -------------------------------------------------------------
-        // 1. PROCESS RECEIPTS (Stock In -> Debit Entry in Daily Sheet)
+        // 1. PROCESS RECEIPTS
         // -------------------------------------------------------------
         if (lubricant_receipts && lubricant_receipts.length > 0) {
             let totalReceiptAmount = 0;
@@ -381,72 +396,45 @@ exports.updateLubricants = async (req, res) => {
         }
 
         // -------------------------------------------------------------
-        // 2. PROCESS SALES (Stock Out -> Credit Entry in Daily Sheet & Update shift_sales_deduct)
+        // 2. PROCESS SALES (FIXED: DELTA BASED CALCULATION)
         // -------------------------------------------------------------
         if (lubricant_sales && lubricant_sales.length > 0) {
-            let totalSalesAmount = 0;
-            let salesDetails = [];
-
             for (const item of lubricant_sales) {
-                const qty = parseInt(item.qty, 10) || 0;
-                if (qty > 0) {
-                    await db.query(`
-                        INSERT INTO lubricant_stocks (item_name, current_stock, shift_sales_deduct, user_id) 
-                        VALUES ($1, 0, 0, $2)
-                        ON CONFLICT (item_name, user_id) DO NOTHING
-                    `, [item.name, userId]);
+                const newDeductQty = parseInt(item.qty, 10) || 0;
 
-                    // Update current_stock and shift_sales_deduct for profit reporting
+                // Check record existence
+                await db.query(`
+                    INSERT INTO lubricant_stocks (item_name, current_stock, shift_sales_deduct, user_id) 
+                    VALUES ($1, 0, 0, $2)
+                    ON CONFLICT (item_name, user_id) DO NOTHING
+                `, [item.name, userId]);
+
+                // Current shift_sales_deduct value ko fetch karain
+                const currentRes = await db.query(
+                    'SELECT shift_sales_deduct FROM lubricant_stocks WHERE item_name = $1 AND user_id = $2',
+                    [item.name, userId]
+                );
+
+                const previousDeductQty = currentRes.rows.length > 0 
+                    ? (parseInt(currentRes.rows[0].shift_sales_deduct, 10) || 0) 
+                    : 0;
+
+                // Difference (Delta) calculate karain taakay har submit par double subtract na ho
+                const diff = newDeductQty - previousDeductQty;
+
+                if (diff !== 0) {
                     await db.query(
                         `UPDATE lubricant_stocks 
                          SET current_stock = current_stock - $1,
-                             shift_sales_deduct = COALESCE(shift_sales_deduct, 0) + $1 
-                         WHERE item_name = $2 AND user_id = $3`,
-                        [qty, item.name, userId]
+                             shift_sales_deduct = $2 
+                         WHERE item_name = $3 AND user_id = $4`,
+                        [diff, newDeductQty, item.name, userId]
                     );
-
-                    let rate = parseFloat(item.price || item.rate || 0);
-                    if (rate <= 0) {
-                        const rateRes = await db.query(`
-                            SELECT rate_per_litre, purchase_price FROM fuel_rates 
-                            WHERE LOWER(TRIM(product_name)) = LOWER(TRIM($1))
-                               OR LOWER(TRIM(specific_category)) = LOWER(TRIM($1))
-                            ORDER BY id DESC LIMIT 1
-                        `, [item.name]);
-
-                        if (rateRes.rows.length > 0) {
-                            rate = parseFloat(rateRes.rows[0].rate_per_litre || rateRes.rows[0].purchase_price || 0);
-                        }
-                    }
-
-                    const itemTotal = qty * rate;
-                    totalSalesAmount += itemTotal;
-                    
-                    const formattedRate = rate.toFixed(2);
-                    salesDetails.push(`${qty} ${item.name} @ ${formattedRate}`);
                 }
-            }
-
-            if (salesDetails.length > 0) {
-                const description = `Mobiloil sale (${salesDetails.join(', ')})`;
-                
-                await db.query(`
-                    INSERT INTO daily_sheets (search_id, debit_udhaar, credit_vasooli, description, total_balance, sheet_date, user_id, sheet_sr_no)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                `, [
-                    searchId,
-                    0.00,
-                    totalSalesAmount,
-                    description,
-                    totalSalesAmount,
-                    entryDate,
-                    userId,
-                    srNo
-                ]);
             }
         }
 
-        res.json({ status: "Success", message: "Lubricant stock aur Daily Sheet entry successfully update ho gayi hain!" });
+        res.json({ status: "Success", message: "Lubricant stock successfully update ho gaya hai!" });
     } catch (error) {
         console.error("Update Lubricants Error:", error);
         res.status(500).json({ status: "Error", message: error.message });

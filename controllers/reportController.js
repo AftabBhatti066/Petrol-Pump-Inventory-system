@@ -65,7 +65,7 @@ exports.getTrialBalance = async (req, res) => {
     }
 };
 
-// 3. Get Dispenser Profit Report
+// 3. Get Dispenser Profit Report (SORTING UPDATED: Oldest to Newest Date Order)
 exports.getDispenserProfitReport = async (req, res) => {
     try {
         const { start_date, end_date, startDate, endDate, userId } = req.query;
@@ -103,10 +103,10 @@ exports.getDispenserProfitReport = async (req, res) => {
 
                 UNION ALL
 
-                -- Lubricant Stocks (Safely handles created_at fallback to CURRENT_DATE)
+                -- Lubricant Stocks
                 SELECT 
                     ls.id,
-                    COALESCE(ls.created_at::date, CURRENT_DATE) AS reading_date,
+                    COALESCE(ls.updated_at::date, ls.created_at::date, CURRENT_DATE) AS reading_date,
                     'Mobiloil Counter' AS nozzle_name,
                     COALESCE(ls.item_name, 'Mobiloil') AS fuel_type,
                     COALESCE(ls.shift_sales_deduct, 0) AS liters_sold,
@@ -114,18 +114,17 @@ exports.getDispenserProfitReport = async (req, res) => {
                 FROM lubricant_stocks ls
                 WHERE COALESCE(ls.shift_sales_deduct, 0) > 0
             ) combined
-            LEFT JOIN (
-                SELECT product_name, product_type, rate_per_litre, purchase_price
-                FROM fuel_rates
-                WHERE id IN (SELECT MAX(id) FROM fuel_rates GROUP BY product_name, product_type)
-            ) fr ON LOWER(TRIM(combined.fuel_type)) = LOWER(TRIM(fr.product_name))
-                 OR LOWER(TRIM(combined.fuel_type)) = LOWER(TRIM(fr.product_type))
-                 OR LOWER(TRIM(combined.fuel_type)) LIKE '%' || LOWER(TRIM(fr.product_type)) || '%'
-                 OR LOWER(TRIM(fr.product_name)) LIKE '%' || LOWER(TRIM(combined.fuel_type)) || '%'
-                 OR (
-                    (LOWER(combined.fuel_type) LIKE '%mobil%' OR LOWER(combined.fuel_type) LIKE '%oil%' OR LOWER(combined.fuel_type) LIKE '%lubricant%') 
-                    AND (LOWER(fr.product_name) LIKE '%mobil%' OR LOWER(fr.product_type) LIKE '%lubricant%')
-                 )
+            LEFT JOIN LATERAL (
+                SELECT rate_per_litre, purchase_price 
+                FROM fuel_rates fr_sub
+                WHERE LOWER(TRIM(fr_sub.product_name)) = LOWER(TRIM(combined.fuel_type))
+                   OR LOWER(TRIM(fr_sub.product_type)) = LOWER(TRIM(combined.fuel_type))
+                   OR LOWER(TRIM(fr_sub.specific_category)) = LOWER(TRIM(combined.fuel_type))
+                   OR LOWER(TRIM(combined.fuel_type)) LIKE '%' || LOWER(TRIM(fr_sub.product_name)) || '%'
+                   OR LOWER(TRIM(fr_sub.product_name)) LIKE '%' || LOWER(TRIM(combined.fuel_type)) || '%'
+                ORDER BY fr_sub.id DESC 
+                LIMIT 1
+            ) fr ON true
             WHERE combined.reading_date BETWEEN $1 AND $2
         `;
         
@@ -136,7 +135,8 @@ exports.getDispenserProfitReport = async (req, res) => {
             detailsQuery += ` AND (combined.user_id = $${detailsParams.length} OR combined.user_id IS NULL)`;
         }
 
-        detailsQuery += ` ORDER BY combined.reading_date DESC, combined.id DESC`;
+        // Sorting: ASC order for chronological date sequence (e.g., 2 -> 3 -> 4)
+        detailsQuery += ` ORDER BY combined.reading_date ASC, combined.id ASC`;
 
         const { rows: details } = await db.query(detailsQuery, detailsParams);
 
@@ -253,22 +253,21 @@ exports.postMonthEndProfit = async (req, res) => {
                     TRIM(ls.item_name) AS fuel_type,
                     COALESCE(ls.shift_sales_deduct, 0) AS liters_sold,
                     ls.user_id,
-                    COALESCE(ls.created_at::date, CURRENT_DATE) AS transaction_date
+                    COALESCE(ls.updated_at::date, ls.created_at::date, CURRENT_DATE) AS transaction_date
                 FROM lubricant_stocks ls
                 WHERE COALESCE(ls.shift_sales_deduct, 0) > 0
             ) combined
-            LEFT JOIN (
-                SELECT product_name, product_type, rate_per_litre, purchase_price
-                FROM fuel_rates
-                WHERE id IN (SELECT MAX(id) FROM fuel_rates GROUP BY product_name, product_type)
-            ) fr ON LOWER(TRIM(combined.fuel_type)) = LOWER(TRIM(fr.product_name))
-                 OR LOWER(TRIM(combined.fuel_type)) = LOWER(TRIM(fr.product_type))
-                 OR LOWER(TRIM(combined.fuel_type)) LIKE '%' || LOWER(TRIM(fr.product_type)) || '%'
-                 OR LOWER(TRIM(fr.product_name)) LIKE '%' || LOWER(TRIM(combined.fuel_type)) || '%'
-                 OR (
-                    (LOWER(combined.fuel_type) LIKE '%mobil%' OR LOWER(combined.fuel_type) LIKE '%oil%' OR LOWER(combined.fuel_type) LIKE '%lubricant%') 
-                    AND (LOWER(fr.product_name) LIKE '%mobil%' OR LOWER(fr.product_type) LIKE '%lubricant%')
-                 )
+            LEFT JOIN LATERAL (
+                SELECT rate_per_litre, purchase_price 
+                FROM fuel_rates fr_sub
+                WHERE LOWER(TRIM(fr_sub.product_name)) = LOWER(TRIM(combined.fuel_type))
+                   OR LOWER(TRIM(fr_sub.product_type)) = LOWER(TRIM(combined.fuel_type))
+                   OR LOWER(TRIM(fr_sub.specific_category)) = LOWER(TRIM(combined.fuel_type))
+                   OR LOWER(TRIM(combined.fuel_type)) LIKE '%' || LOWER(TRIM(fr_sub.product_name)) || '%'
+                   OR LOWER(TRIM(fr_sub.product_name)) LIKE '%' || LOWER(TRIM(combined.fuel_type)) || '%'
+                ORDER BY fr_sub.id DESC 
+                LIMIT 1
+            ) fr ON true
             WHERE combined.transaction_date BETWEEN $1 AND $2
               AND (combined.user_id = $3 OR combined.user_id IS NULL)
             GROUP BY combined.fuel_type
