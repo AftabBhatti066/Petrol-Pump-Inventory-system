@@ -36,9 +36,8 @@
         </div>
     </div>
 
-    <div class="section-header-box">
+    <div class="section-header-box" style="display: flex; justify-content: space-between; align-items: center;">
         <span>Daily Sheet (Amount-Based Entries Only)</span>
-        <span id="save_status_indicator" style="font-weight: normal; font-size: 12px; color: #27ae60; transition: all 0.3s;">Status: Auto-Save Ready</span>
     </div>
 
     <div class="control-panel"
@@ -83,7 +82,7 @@
         <tbody id="sheetTableBody">
         </tbody>
     </table>
-    <button class="btn-save-sheet" onclick="saveAllSheetEntries(true)">💾 Save Daily Sheet</button>
+    <button class="btn-save-sheet" onclick="saveAllSheetEntries()">💾 Save Daily Sheet</button>
     <div class="summary-bar">
         <div>
             <span>Total Debit: <span id="lbl_total_debit" style="color: #c0392b;">0</span></span>
@@ -99,8 +98,7 @@
         const API_URL = '/api/daily-sheet';
         let customerMap = {};
         let currentDayOpeningBalance = 0;
-        let autoSaveTimer = null;
-        let isSaving = false;
+        let isSavingInProgress = false;
 
         // --- DATE CONVERSION UTILITIES ---
         function getTodayDDMMYYYY() {
@@ -133,19 +131,6 @@
                     index++;
                 }
             });
-        }
-
-        // AUTO-SAVE TRIGGER WITH DEBOUNCE (1.5 Seconds Delay)
-        function triggerAutoSave() {
-            const statusLabel = document.getElementById('save_status_indicator');
-            if (statusLabel) {
-                statusLabel.style.color = '#e67e22';
-                statusLabel.textContent = 'Status: Changes Pending...';
-            }
-            clearTimeout(autoSaveTimer);
-            autoSaveTimer = setTimeout(() => {
-                saveAllSheetEntries(false);
-            }, 1500);
         }
 
         async function loadCustomerMasterMap() {
@@ -279,19 +264,19 @@
             tr.innerHTML = `
             <td class="text-center text-bold serial-no">${srNo}</td>
             <td class="text-center">
-                <input type="text" class="sheet-input input-search-id" value="${searchIdVal}" placeholder="Search ID" oninput="onSearchIdInput(this)" onkeydown="handleEnterNavigation(event, 'search_id')">
+                <input type="text" class="sheet-input input-search-id" value="${searchIdVal}" placeholder="Search ID" oninput="onSearchIdInput(this);" onkeydown="handleEnterNavigation(event, 'search_id')">
             </td>
             <td>
-                <input type="text" class="sheet-input input-cust-name" value="${custName}" placeholder="Auto Name" readonly style="background-color: #f8f9fa; font-weight: bold; color: #000;">
+                <input type="text" class="sheet-input input-cust-name" value="${custName}" placeholder="Auto Name" readonly style="background-color: #f8f9fa; font-weight: bold; color: ${customerMap[searchIdKey] ? '#000' : (searchIdKey ? '#c0392b' : '#000')};">
             </td>
             <td>
-                <input type="text" class="sheet-input input-description" value="${descVal}" placeholder="Detail..." oninput="triggerAutoSave()" onkeydown="handleEnterNavigation(event, 'desc')">
+                <input type="text" class="sheet-input input-description" value="${descVal}" placeholder="Detail..." onkeydown="handleEnterNavigation(event, 'desc')">
             </td>
             <td>
-                <input type="number" class="sheet-input input-debit" value="${debitVal}" placeholder="0" oninput="recalculateTotals(); triggerAutoSave();" onkeydown="handleEnterNavigation(event, 'debit')">
+                <input type="number" class="sheet-input input-debit" value="${debitVal}" placeholder="0" oninput="recalculateTotals();" onkeydown="handleEnterNavigation(event, 'debit')">
             </td>
             <td>
-                <input type="number" class="sheet-input input-credit" value="${creditVal}" placeholder="0" oninput="recalculateTotals(); triggerAutoSave();" onkeydown="handleEnterNavigation(event, 'credit')">
+                <input type="number" class="sheet-input input-credit" value="${creditVal}" placeholder="0" oninput="recalculateTotals();" onkeydown="handleEnterNavigation(event, 'credit')">
             </td>
         `;
 
@@ -327,8 +312,6 @@
                 nameInput.value = 'Not Found';
                 nameInput.style.color = '#c0392b';
             }
-
-            triggerAutoSave();
         }
 
         function isRowFilled(tr) {
@@ -510,14 +493,14 @@
             const userId = localStorage.getItem('userId');
 
             if (!name || !searchId) {
-                alert("Customer Name aur Search ID dono zaroori hain!");
+                alert("Validation Error: Please enter both Customer Name and Search ID!");
                 return;
             }
 
             const cleanId = searchId.toLowerCase();
 
             if (customerMap[cleanId]) {
-                alert(`⚠️ Duplicate Error: Search ID '${searchId}' pehle se registered hai!`);
+                alert(`Duplicate Error: Search ID '${searchId}' is already registered in the system!`);
                 return;
             }
 
@@ -561,18 +544,19 @@
                     addNewEmptyRow(false);
                     reindexSerialNumbers();
 
-                    alert("🎉 Customer Master List mein add ho gaya!");
+                    alert("Success: Customer has been successfully added to the Master List!");
                 } else {
                     alert("Error: " + (result.message || result.db_error));
                 }
             } catch (err) {
                 console.error("Customer add error:", err);
+                alert("Network Error: Failed to add customer. Please check your connection.");
             }
         }
 
-        // AUTO & MANUAL SAVE FUNCTION
-        async function saveAllSheetEntries(isManual = false) {
-            if (isSaving) return;
+        // --- MANUAL SAVE ALL SHEET ENTRIES WITH CUSTOMER VALIDATION ---
+        async function saveAllSheetEntries() {
+            if (isSavingInProgress) return;
 
             const rawDateVal = document.getElementById('working_date').value;
             const formattedISO = parseDDMMYYYYtoISO(rawDateVal.trim());
@@ -581,7 +565,6 @@
             const rows = tbody.querySelectorAll('tr');
             const userId = localStorage.getItem('userId');
             const saveBtn = document.querySelector('.btn-save-sheet');
-            const statusLabel = document.getElementById('save_status_indicator');
 
             if (rows.length === 0) return;
 
@@ -589,8 +572,9 @@
 
             const entries = [];
             let currentSrNo = 1;
+            let invalidCustomerFound = false;
 
-            rows.forEach(tr => {
+            for (const tr of rows) {
                 const rowId = tr.getAttribute('data-id') || tr.getAttribute('data-db-id') || null;
 
                 const searchIdInput = tr.querySelector('.input-search-id');
@@ -600,12 +584,22 @@
                 const creditInput = tr.querySelector('.input-credit');
 
                 const searchId = searchIdInput ? searchIdInput.value.trim() : '';
-                const custName = custNameInput ? custNameInput.value.trim() : '';
+                const searchIdKey = searchId.toLowerCase();
                 const descVal = descInput ? descInput.value.trim() : '';
                 const debitVal = parseFloat(debitInput ? debitInput.value : 0) || 0;
                 const creditVal = parseFloat(creditInput ? creditInput.value : 0) || 0;
 
-                if ((debitVal > 0 || creditVal > 0) && searchId !== '') {
+                if (debitVal > 0 || creditVal > 0 || searchId !== '') {
+                    // Check if customer is registered in customerMap
+                    if (!searchId || !customerMap[searchIdKey]) {
+                        alert(`Validation Error: Search ID '${searchId}' is not registered in the Master Customer List!\n\nPlease add this customer via "+ New Cust" before saving.`);
+                        if (searchIdInput) searchIdInput.focus();
+                        invalidCustomerFound = true;
+                        break;
+                    }
+
+                    const custName = customerMap[searchIdKey];
+
                     const entryPayload = {
                         sheet_sr_no: currentSrNo,
                         sr_no: currentSrNo,
@@ -627,22 +621,21 @@
                     entries.push(entryPayload);
                     currentSrNo++;
                 }
-            });
+            }
+
+            if (invalidCustomerFound) return;
 
             if (entries.length === 0) {
-                if (isManual) alert("⚠️ Save karne ke liye koi valid transaction (Debit ya Credit amount) nahi mili!");
+                alert("Validation Warning: No valid transactions (Debit or Credit amounts) found to save!");
                 return;
             }
 
             try {
-                isSaving = true;
+                isSavingInProgress = true;
+
                 if (saveBtn) {
                     saveBtn.disabled = true;
-                    saveBtn.innerText = "⏳ Auto-Saving...";
-                }
-                if (statusLabel) {
-                    statusLabel.style.color = '#3498db';
-                    statusLabel.textContent = 'Status: Saving...';
+                    saveBtn.innerText = "⏳ Saving...";
                 }
 
                 const res = await fetch(`${API_URL}/save`, {
@@ -653,52 +646,31 @@
 
                 const result = await res.json();
                 if (result.status === "Success" || res.ok) {
-                    if (statusLabel) {
-                        statusLabel.style.color = '#27ae60';
-                        statusLabel.textContent = 'Status: ✅ Auto-Saved';
-                    }
-                    if (isManual) alert("🎉 Data Save Ho Gaya!");
-
-                    // Map server-assigned IDs to rows so future updates edit existing rows
-                    const savedEntries = result.entries || result.data || [];
-                    if (Array.isArray(savedEntries) && savedEntries.length > 0) {
-                        const trElements = tbody.querySelectorAll('tr');
-                        savedEntries.forEach(sEntry => {
-                            trElements.forEach(tr => {
-                                const sInput = tr.querySelector('.input-search-id');
-                                const dInput = tr.querySelector('.input-debit');
-                                const cInput = tr.querySelector('.input-credit');
-                                
-                                if (sInput && sInput.value.trim().toLowerCase() === String(sEntry.search_id).trim().toLowerCase() &&
-                                    parseFloat(dInput?.value || 0) === (parseFloat(sEntry.debit_udhaar) || parseFloat(sEntry.debit) || 0) &&
-                                    parseFloat(cInput?.value || 0) === (parseFloat(sEntry.credit_vasooli) || parseFloat(sEntry.credit) || 0) &&
-                                    !tr.getAttribute('data-id')) {
-                                    
-                                    if (sEntry.id) {
-                                        tr.setAttribute('data-id', sEntry.id);
-                                        tr.setAttribute('data-db-id', sEntry.id);
-                                    }
+                    alert("Success: Daily Sheet entries saved successfully!");
+                    
+                    if (result.data || result.entries) {
+                        const savedData = result.data || result.entries;
+                        if (Array.isArray(savedData)) {
+                            savedData.forEach((savedItem) => {
+                                const matchingRow = Array.from(rows).find(tr => {
+                                    const sInput = tr.querySelector('.input-search-id');
+                                    return sInput && sInput.value.trim().toLowerCase() === String(savedItem.search_id).trim().toLowerCase();
+                                });
+                                if (matchingRow && savedItem.id) {
+                                    matchingRow.setAttribute('data-id', savedItem.id);
+                                    matchingRow.setAttribute('data-db-id', savedItem.id);
                                 }
                             });
-                        });
+                        }
                     }
-
                 } else {
-                    if (statusLabel) {
-                        statusLabel.style.color = '#c0392b';
-                        statusLabel.textContent = 'Status: ⚠️ Save Error';
-                    }
-                    if (isManual) alert("Error: " + (result.message || result.db_error));
+                    alert("Save Error: " + (result.message || result.db_error));
                 }
             } catch (err) {
                 console.error("Saving error:", err);
-                if (statusLabel) {
-                    statusLabel.style.color = '#c0392b';
-                    statusLabel.textContent = 'Status: ⚠️ Server Error';
-                }
-                if (isManual) alert("Server communication error while saving!");
+                alert("Network Error: Communication failed while saving data to the server!");
             } finally {
-                isSaving = false;
+                isSavingInProgress = false;
                 if (saveBtn) {
                     saveBtn.disabled = false;
                     saveBtn.innerText = "💾 Save Daily Sheet";
@@ -724,7 +696,7 @@
                 logoutBtn.addEventListener('click', () => {
                     localStorage.removeItem('userId');
                     localStorage.removeItem('username');
-                    alert("Aap successfully logout ho chuke hain!");
+                    alert("Logout Successful: You have been logged out.");
                     window.location.href = 'login.html';
                 });
             }
