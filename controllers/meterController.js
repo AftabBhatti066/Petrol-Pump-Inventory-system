@@ -1,13 +1,13 @@
 const db = require('../config/db');
 
-// Default Lubricants aur Fuels ki list taakay automatic system crash recovery ho sakay
+// Default Lubricants list for recovery
 const DEFAULT_LUBRICANTS = [
     'T 2 20Ltrs', 'Balize .75', 'Balize 1Ltrs', 'Cariant 3Ltrs',
     'Cariant 4ltrs', 'Deo 6000 4Ltrs', 'Deo 6000 10Ltrs',
     'Deo 8000 4Ltrs', 'Deo 8000 10Ltrs'
 ];
 
-// Helper Function: Date YYYY-MM-DD Format karne ke liye (FIXED: Timezone Date-Shift Issue Resolved)
+// Helper Function: Safe Date Formatting
 const formatDate = (dateInput) => {
     if (!dateInput) {
         const today = new Date();
@@ -17,7 +17,6 @@ const formatDate = (dateInput) => {
         return `${year}-${month}-${day}`;
     }
 
-    // Direct String Extraction to Prevent UTC/Timezone conversion shifts
     if (typeof dateInput === 'string') {
         const cleanDate = dateInput.split('T')[0];
         if (/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
@@ -25,28 +24,38 @@ const formatDate = (dateInput) => {
         }
     }
 
-    // Fallback using UTC Date components
     const d = new Date(dateInput);
     const year = d.getUTCFullYear();
     const month = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(d.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
 };
 
-// 0. GET ALL FUEL RATES / PRICING
+// Helper Function: Get Next Day Date String (YYYY-MM-DD)
+const getNextDate = (currentDateStr) => {
+    const d = new Date(currentDateStr);
+    d.setDate(d.getDate() + 1);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+// 0. GET ALL FUEL RATES (Date Specific)
 exports.getRates = async (req, res) => {
     try {
-        const userId = req.query.userId;
-        
+        const { userId, date } = req.query;
+        const targetDate = formatDate(date);
+
         const query = `
             SELECT id, product_name, product_type, specific_category, 
                    rate_per_litre, purchase_price, rate_date, user_id
             FROM fuel_rates
-            WHERE user_id = $1 OR user_id IS NULL
-            ORDER BY id ASC
+            WHERE (user_id = $1 OR user_id IS NULL)
+              AND rate_date <= $2
+            ORDER BY rate_date DESC, id DESC
         `;
 
-        const result = await db.query(query, [userId || null]);
+        const result = await db.query(query, [userId || null, targetDate]);
         res.json({ status: "Success", data: result.rows });
     } catch (error) {
         console.error("Get Rates Error:", error);
@@ -54,26 +63,28 @@ exports.getRates = async (req, res) => {
     }
 };
 
-// 1. GET ALL LATEST NOZZLE READINGS (Filtered by user_id)
+// 1. GET NOZZLE READINGS UP TO SELECTED DATE
 exports.getAllReadings = async (req, res) => {
     try {
-        const userId = req.query.userId;
+        const { userId, date } = req.query;
         if (!userId) {
             return res.status(400).json({ status: "Error", message: "User ID missing!" });
         }
+
+        const targetDate = formatDate(date);
 
         const query = `
             SELECT m1.* FROM meter_readings m1
             INNER JOIN (
                 SELECT nozzle_name, MAX(id) as max_id 
                 FROM meter_readings 
-                WHERE user_id = $1 
+                WHERE user_id = $1 AND reading_date <= $2
                 GROUP BY nozzle_name
             ) m2 ON m1.id = m2.max_id
-            WHERE m1.user_id = $2
+            WHERE m1.user_id = $1
         `;
 
-        const result = await db.query(query, [userId, userId]);
+        const result = await db.query(query, [userId, targetDate]);
         res.json({ status: "Success", data: result.rows });
     } catch (error) {
         console.error("Get All Readings Error:", error);
@@ -81,26 +92,58 @@ exports.getAllReadings = async (req, res) => {
     }
 };
 
-// 2. GET FUEL TANK STOCK (Filtered by user_id + Auto-Initialization)
+// 2. GET FUEL TANK STOCK AS OF SELECTED DATE
 exports.getTankStock = async (req, res) => {
     try {
-        const userId = req.query.userId;
+        const { userId, date } = req.query;
         if (!userId) {
             return res.status(400).json({ status: "Error", message: "User ID missing!" });
         }
 
-        let result = await db.query('SELECT fuel_type, current_stock FROM fuel_stocks WHERE user_id = $1', [userId]);
+        const targetDate = formatDate(date);
+
+        const query = `
+            SELECT 
+                fs.fuel_type,
+                (
+                    COALESCE(fs.opening_stock, 0) 
+                    + COALESCE(receipts.total_received, 0) 
+                    - COALESCE(sales.total_sold, 0)
+                ) AS current_stock
+            FROM fuel_stocks fs
+            LEFT JOIN (
+                SELECT 
+                    CASE 
+                        WHEN LOWER(description) LIKE '%diesel%' THEN 'Diesel'
+                        ELSE 'Super' 
+                    END as fuel_type,
+                    SUM(
+                        CAST(SUBSTRING(description FROM '([0-9\.]+)L') AS NUMERIC)
+                    ) as total_received
+                FROM daily_sheets
+                WHERE user_id = $1 AND sheet_date <= $2 AND search_id IN ('dl', 'sp')
+                GROUP BY fuel_type
+            ) receipts ON LOWER(fs.fuel_type) = LOWER(receipts.fuel_type)
+            LEFT JOIN (
+                SELECT fuel_type, SUM(liters_sold) as total_sold
+                FROM meter_readings
+                WHERE user_id = $1 AND reading_date <= $2
+                GROUP BY fuel_type
+            ) sales ON LOWER(fs.fuel_type) = LOWER(sales.fuel_type)
+            WHERE fs.user_id = $1
+        `;
+
+        let result = await db.query(query, [userId, targetDate]);
         let rows = result.rows;
 
-        // CRASH RECOVERY: Agar naye user ka fuel stock entry nahi hai
         if (rows.length === 0) {
             await db.query(`
                 INSERT INTO fuel_stocks (fuel_type, current_stock, user_id) 
-                VALUES ('Diesel', 0.00, $1), ('Super', 0.00, $2)
+                VALUES ('Diesel', 0.00, $1), ('Super', 0.00, $1)
                 ON CONFLICT (fuel_type, user_id) DO NOTHING
-            `, [userId, userId]);
+            `, [userId]);
 
-            const retryResult = await db.query('SELECT fuel_type, current_stock FROM fuel_stocks WHERE user_id = $1', [userId]);
+            const retryResult = await db.query(query, [userId, targetDate]);
             rows = retryResult.rows;
         }
 
@@ -111,32 +154,37 @@ exports.getTankStock = async (req, res) => {
     }
 };
 
-// 3. GET LUBRICANT STOCK (Filtered by user_id + Auto-Initialization + Pricing Support)
+// 3. GET LUBRICANT STOCK AS OF SELECTED DATE
 exports.getLubricantStock = async (req, res) => {
     try {
-        const userId = req.query.userId;
+        const { userId, date } = req.query;
         if (!userId) {
             return res.status(400).json({ status: "Error", message: "User ID missing!" });
         }
 
+        const targetDate = formatDate(date);
+
         let query = `
-            SELECT ls.item_name, ls.current_stock, ls.shift_sales_deduct,
+            SELECT ls.item_name, 
+                   COALESCE(ls.current_stock, 0) as current_stock, 
+                   COALESCE(ls.shift_sales_deduct, 0) as shift_sales_deduct,
                    COALESCE(fr.purchase_price, fr.rate_per_litre, 0) as purchase_price
             FROM lubricant_stocks ls
             LEFT JOIN LATERAL (
                 SELECT purchase_price, rate_per_litre 
                 FROM fuel_rates 
-                WHERE LOWER(TRIM(product_name)) = LOWER(TRIM(ls.item_name))
-                   OR LOWER(TRIM(specific_category)) = LOWER(TRIM(ls.item_name))
-                ORDER BY id DESC LIMIT 1
+                WHERE (LOWER(TRIM(product_name)) = LOWER(TRIM(ls.item_name))
+                   OR LOWER(TRIM(specific_category)) = LOWER(TRIM(ls.item_name)))
+                  AND (user_id = $1 OR user_id IS NULL)
+                  AND rate_date <= $2
+                ORDER BY rate_date DESC, id DESC LIMIT 1
             ) fr ON true
             WHERE ls.user_id = $1
         `;
 
-        let result = await db.query(query, [userId]);
+        let result = await db.query(query, [userId, targetDate]);
         let rows = result.rows;
         
-        // CRASH RECOVERY: Automatic lubricant creation for new users
         if (rows.length === 0) {
             for (const item of DEFAULT_LUBRICANTS) {
                 await db.query(`
@@ -145,7 +193,7 @@ exports.getLubricantStock = async (req, res) => {
                     ON CONFLICT (item_name, user_id) DO NOTHING
                 `, [item, userId]);
             }
-            const retryResult = await db.query(query, [userId]);
+            const retryResult = await db.query(query, [userId, targetDate]);
             rows = retryResult.rows;
         }
 
@@ -156,8 +204,9 @@ exports.getLubricantStock = async (req, res) => {
     }
 };
 
-// 4. ADD NEW METER READING (Safe Insert & Deduct)
+// 4. ADD NEW METER READING (Auto Next Working Date Return)
 exports.addReading = async (req, res) => {
+    const client = await db.connect();
     try {
         const { nozzle_name, fuel_type, closing_reading, reading_date, userId } = req.body;
 
@@ -165,43 +214,59 @@ exports.addReading = async (req, res) => {
             return res.status(400).json({ status: "Error", message: "Missing required fields!" });
         }
 
-        // 1. Purani closing reading fetch karein
-        const lastResult = await db.query(
-            'SELECT closing_reading FROM meter_readings WHERE nozzle_name = $1 AND user_id = $2 ORDER BY id DESC LIMIT 1',
-            [nozzle_name, userId]
+        const safeDate = formatDate(reading_date);
+        const nextWorkingDate = getNextDate(safeDate);
+
+        await client.query('BEGIN');
+
+        // Fetch last closing reading BEFORE or ON the target date
+        const lastResult = await client.query(
+            'SELECT closing_reading FROM meter_readings WHERE nozzle_name = $1 AND user_id = $2 AND reading_date <= $3 ORDER BY id DESC LIMIT 1',
+            [nozzle_name, userId, safeDate]
         );
 
         const opening_reading = lastResult.rows.length > 0 ? parseFloat(lastResult.rows[0].closing_reading) : 0.00;
         const liters_sold = Math.max(0, parseFloat(closing_reading) - opening_reading);
 
-        // 2. Insert new reading record
+        // Insert new reading
         const insertQuery = `
             INSERT INTO meter_readings (nozzle_name, fuel_type, opening_reading, closing_reading, liters_sold, reading_date, user_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
         `;
-        await db.query(insertQuery, [nozzle_name, fuel_type, opening_reading, closing_reading, liters_sold, reading_date, userId]);
+        await client.query(insertQuery, [nozzle_name, fuel_type, opening_reading, closing_reading, liters_sold, safeDate, userId]);
 
-        // 3. Fuel Tank Stock safe check update
-        await db.query(`
+        // Ensure stock record & deduct stock
+        await client.query(`
             INSERT INTO fuel_stocks (fuel_type, current_stock, user_id) 
             VALUES ($1, 0.00, $2)
             ON CONFLICT (fuel_type, user_id) DO NOTHING
         `, [fuel_type, userId]);
 
-        await db.query(
+        await client.query(
             'UPDATE fuel_stocks SET current_stock = current_stock - $1 WHERE LOWER(TRIM(fuel_type)) = LOWER(TRIM($2)) AND user_id = $3',
             [liters_sold, fuel_type, userId]
         );
 
-        res.json({ status: "Success", message: "Reading logged and stock updated successfully!" });
+        await client.query('COMMIT');
+
+        res.json({ 
+            status: "Success", 
+            message: "Reading logged and stock updated successfully!",
+            currentDate: safeDate,
+            nextWorkingDate: nextWorkingDate
+        });
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error("Add Reading Error:", error);
         res.status(500).json({ status: "Error", message: error.message });
+    } finally {
+        client.release();
     }
 };
 
-// 5. UPDATE TANK RECEIPTS (Editable Total & Auto Calculated Rate)
+// 5. UPDATE TANK RECEIPTS (Auto Next Working Date Return)
 exports.updateReceipt = async (req, res) => {
+    const client = await db.connect();
     try {
         const { fuel_type, receipt_liters, total_amount, rate_per_liter, receipt_date, sheet_sr_no, userId } = req.body;
 
@@ -211,22 +276,13 @@ exports.updateReceipt = async (req, res) => {
 
         const liters = parseFloat(receipt_liters) || 0;
         const entryDate = formatDate(receipt_date);
+        const nextWorkingDate = getNextDate(entryDate);
+
         const srNo = sheet_sr_no || 1;
         const typeNormalized = fuel_type.trim().toLowerCase();
 
-        let searchId = '';
-        let fuelSearchType = '';
-
-        if (typeNormalized.includes('diesel')) {
-            searchId = 'dl';
-            fuelSearchType = 'Diesel';
-        } else if (typeNormalized.includes('super') || typeNormalized.includes('petrol')) {
-            searchId = 'sp';
-            fuelSearchType = 'Super';
-        } else {
-            searchId = typeNormalized;
-            fuelSearchType = fuel_type;
-        }
+        let searchId = typeNormalized.includes('diesel') ? 'dl' : (typeNormalized.includes('super') || typeNormalized.includes('petrol') ? 'sp' : typeNormalized);
+        let fuelSearchType = typeNormalized.includes('diesel') ? 'Diesel' : (typeNormalized.includes('super') || typeNormalized.includes('petrol') ? 'Super' : fuel_type);
 
         let calculatedTotal = 0;
         let finalRate = 0;
@@ -234,94 +290,89 @@ exports.updateReceipt = async (req, res) => {
         if (total_amount !== undefined && total_amount !== null && total_amount !== '' && parseFloat(total_amount) > 0) {
             calculatedTotal = parseFloat(total_amount);
             finalRate = liters > 0 ? (calculatedTotal / liters) : 0;
-        } 
-        else if (rate_per_liter && parseFloat(rate_per_liter) > 0) {
+        } else if (rate_per_liter && parseFloat(rate_per_liter) > 0) {
             finalRate = parseFloat(rate_per_liter);
             calculatedTotal = liters * finalRate;
-        } 
-        else {
-            try {
-                let rateResult = await db.query(
+        } else {
+            const searchTerm = `%${fuelSearchType.toLowerCase()}%`;
+            let rateResult = await client.query(
+                `SELECT purchase_price, rate_per_litre FROM fuel_rates 
+                 WHERE (LOWER(TRIM(product_type)) LIKE $1 
+                    OR LOWER(TRIM(product_name)) LIKE $1 
+                    OR LOWER(TRIM(specific_category)) LIKE $1)
+                   AND (user_id = $2 OR user_id IS NULL)
+                   AND rate_date <= $3
+                 ORDER BY rate_date DESC, created_at DESC, id DESC LIMIT 1`,
+                [searchTerm, userId, entryDate]
+            );
+
+            if (rateResult.rows.length === 0) {
+                rateResult = await client.query(
                     `SELECT purchase_price, rate_per_litre FROM fuel_rates 
-                     WHERE (LOWER(TRIM(product_type)) LIKE LOWER($1) 
-                        OR LOWER(TRIM(product_name)) LIKE LOWER($1) 
-                        OR LOWER(TRIM(specific_category)) LIKE LOWER($1))
-                       AND (user_id = $2 OR user_id IS NULL)
+                     WHERE (LOWER(TRIM(product_type)) LIKE $1 
+                        OR LOWER(TRIM(product_name)) LIKE $1)
+                       AND rate_date <= $2
                      ORDER BY rate_date DESC, created_at DESC, id DESC LIMIT 1`,
-                    [`%${fuelSearchType.toLowerCase()}%`, userId]
+                    [searchTerm, entryDate]
                 );
+            }
 
-                if (rateResult.rows.length === 0) {
-                    rateResult = await db.query(
-                        `SELECT purchase_price, rate_per_litre FROM fuel_rates 
-                         WHERE LOWER(TRIM(product_type)) LIKE LOWER($1) 
-                            OR LOWER(TRIM(product_name)) LIKE LOWER($1)
-                         ORDER BY rate_date DESC, created_at DESC, id DESC LIMIT 1`,
-                        [`%${fuelSearchType.toLowerCase()}%`]
-                    );
-                }
-
-                if (rateResult.rows.length > 0) {
-                    const row = rateResult.rows[0];
-                    const pPrice = parseFloat(row.purchase_price || 0);
-                    const rPrice = parseFloat(row.rate_per_litre || 0);
-                    finalRate = pPrice > 0 ? pPrice : rPrice;
-                }
-            } catch (rateErr) {
-                console.error("DB Rate Fetch Error:", rateErr.message);
+            if (rateResult.rows.length > 0) {
+                const row = rateResult.rows[0];
+                const pPrice = parseFloat(row.purchase_price || 0);
+                const rPrice = parseFloat(row.rate_per_litre || 0);
+                finalRate = pPrice > 0 ? pPrice : rPrice;
             }
 
             calculatedTotal = liters * finalRate;
         }
 
         const formattedRate = finalRate.toFixed(2);
-
         const descriptionText = finalRate > 0 
             ? `${typeNormalized.includes('diesel') ? 'diesel' : 'petrol'} stock (${liters}L @ ${formattedRate})`
             : `${typeNormalized.includes('diesel') ? 'diesel' : 'petrol'} stock (${liters}L)`;
 
-        // Update Stock & Daily Sheet Entries
-        await db.query(`
+        await client.query('BEGIN');
+
+        await client.query(`
             INSERT INTO fuel_stocks (fuel_type, current_stock, opening_stock, receipt_stock, user_id) 
             VALUES ($1, 0.00, 0.00, 0.00, $2)
             ON CONFLICT (fuel_type, user_id) DO NOTHING
         `, [fuel_type, userId]);
 
-        await db.query(`
+        await client.query(`
             UPDATE fuel_stocks 
             SET current_stock = current_stock + $1,
                 receipt_stock = receipt_stock + $1
             WHERE LOWER(TRIM(fuel_type)) = LOWER(TRIM($2)) AND user_id = $3
         `, [liters, fuel_type, userId]);
 
-        await db.query(`
+        await client.query(`
             INSERT INTO daily_sheets (search_id, debit_udhaar, credit_vasooli, description, total_balance, sheet_date, user_id, sheet_sr_no)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        `, [
-            searchId,
-            calculatedTotal,
-            0.00,
-            descriptionText,
-            -calculatedTotal,
-            entryDate,
-            userId,
-            srNo
-        ]);
+        `, [searchId, calculatedTotal, 0.00, descriptionText, -calculatedTotal, entryDate, userId, srNo]);
+
+        await client.query('COMMIT');
 
         res.json({ 
             status: "Success", 
             message: `Stock added (${liters} Ltrs). Rs. ${calculatedTotal} debited!`,
-            data: { liters, rate: formattedRate, totalAmount: calculatedTotal }
+            data: { liters, rate: formattedRate, totalAmount: calculatedTotal },
+            currentDate: entryDate,
+            nextWorkingDate: nextWorkingDate
         });
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error("Update Receipt Error:", error);
         res.status(500).json({ status: "Error", message: error.message });
+    } finally {
+        client.release();
     }
 };
 
-// 6. BATCH UPDATE LUBRICANTS & AUTO-RECORD TO DAILY SHEET
-// FIXED: Double Deduction and Minus Stock Issue Resolved
+// 6. BATCH UPDATE LUBRICANTS & AUTO-RECORD (Auto Next Working Date Return)
 exports.updateLubricants = async (req, res) => {
+    const client = await db.connect();
     try {
         const { lubricant_sales, lubricant_receipts, receipt_date, sheet_sr_no, userId } = req.body;
 
@@ -330,12 +381,14 @@ exports.updateLubricants = async (req, res) => {
         }
 
         const entryDate = formatDate(receipt_date);
+        const nextWorkingDate = getNextDate(entryDate);
+
         const srNo = sheet_sr_no || 1;
         const searchId = 'lub';
 
-        // -------------------------------------------------------------
-        // 1. PROCESS RECEIPTS
-        // -------------------------------------------------------------
+        await client.query('BEGIN');
+
+        // 1. Process Receipts
         if (lubricant_receipts && lubricant_receipts.length > 0) {
             let totalReceiptAmount = 0;
             let receiptDetails = [];
@@ -343,25 +396,27 @@ exports.updateLubricants = async (req, res) => {
             for (const item of lubricant_receipts) {
                 const qty = parseInt(item.qty, 10) || 0;
                 if (qty > 0) {
-                    await db.query(`
+                    await client.query(`
                         INSERT INTO lubricant_stocks (item_name, current_stock, shift_sales_deduct, user_id) 
                         VALUES ($1, 0, 0, $2)
                         ON CONFLICT (item_name, user_id) DO NOTHING
                     `, [item.name, userId]);
 
-                    await db.query(
+                    await client.query(
                         'UPDATE lubricant_stocks SET current_stock = current_stock + $1 WHERE item_name = $2 AND user_id = $3',
                         [qty, item.name, userId]
                     );
 
                     let rate = parseFloat(item.price || item.rate || 0);
                     if (rate <= 0) {
-                        const rateRes = await db.query(`
+                        const rateRes = await client.query(`
                             SELECT purchase_price, rate_per_litre FROM fuel_rates 
-                            WHERE LOWER(TRIM(product_name)) = LOWER(TRIM($1))
-                               OR LOWER(TRIM(specific_category)) = LOWER(TRIM($1))
-                            ORDER BY id DESC LIMIT 1
-                        `, [item.name]);
+                            WHERE (LOWER(TRIM(product_name)) = LOWER(TRIM($1))
+                               OR LOWER(TRIM(specific_category)) = LOWER(TRIM($1)))
+                              AND (user_id = $2 OR user_id IS NULL)
+                              AND rate_date <= $3
+                            ORDER BY rate_date DESC, id DESC LIMIT 1
+                        `, [item.name, userId, entryDate]);
 
                         if (rateRes.rows.length > 0) {
                             rate = parseFloat(rateRes.rows[0].purchase_price || rateRes.rows[0].rate_per_litre || 0);
@@ -370,47 +425,32 @@ exports.updateLubricants = async (req, res) => {
 
                     const itemTotal = qty * rate;
                     totalReceiptAmount += itemTotal;
-                    
-                    const formattedRate = rate.toFixed(2);
-                    receiptDetails.push(`${qty} ${item.name} @ ${formattedRate}`);
+                    receiptDetails.push(`${qty} ${item.name} @ ${rate.toFixed(2)}`);
                 }
             }
 
             if (receiptDetails.length > 0) {
                 const description = `Mobiloil stock receipt (${receiptDetails.join(', ')})`;
                 
-                await db.query(`
+                await client.query(`
                     INSERT INTO daily_sheets (search_id, debit_udhaar, credit_vasooli, description, total_balance, sheet_date, user_id, sheet_sr_no)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                `, [
-                    searchId,
-                    totalReceiptAmount,
-                    0.00,
-                    description,
-                    -totalReceiptAmount,
-                    entryDate,
-                    userId,
-                    srNo
-                ]);
+                `, [searchId, totalReceiptAmount, 0.00, description, -totalReceiptAmount, entryDate, userId, srNo]);
             }
         }
 
-        // -------------------------------------------------------------
-        // 2. PROCESS SALES (FIXED: DELTA BASED CALCULATION)
-        // -------------------------------------------------------------
+        // 2. Process Sales
         if (lubricant_sales && lubricant_sales.length > 0) {
             for (const item of lubricant_sales) {
                 const newDeductQty = parseInt(item.qty, 10) || 0;
 
-                // Check record existence
-                await db.query(`
+                await client.query(`
                     INSERT INTO lubricant_stocks (item_name, current_stock, shift_sales_deduct, user_id) 
                     VALUES ($1, 0, 0, $2)
                     ON CONFLICT (item_name, user_id) DO NOTHING
                 `, [item.name, userId]);
 
-                // Current shift_sales_deduct value ko fetch karain
-                const currentRes = await db.query(
+                const currentRes = await client.query(
                     'SELECT shift_sales_deduct FROM lubricant_stocks WHERE item_name = $1 AND user_id = $2',
                     [item.name, userId]
                 );
@@ -419,24 +459,32 @@ exports.updateLubricants = async (req, res) => {
                     ? (parseInt(currentRes.rows[0].shift_sales_deduct, 10) || 0) 
                     : 0;
 
-                // Difference (Delta) calculate karain taakay har submit par double subtract na ho
                 const diff = newDeductQty - previousDeductQty;
 
                 if (diff !== 0) {
-                    await db.query(
-                        `UPDATE lubricant_stocks 
-                         SET current_stock = current_stock - $1,
-                             shift_sales_deduct = $2 
-                         WHERE item_name = $3 AND user_id = $4`,
-                        [diff, newDeductQty, item.name, userId]
-                    );
+                    await client.query(`
+                        UPDATE lubricant_stocks 
+                        SET current_stock = current_stock - $1,
+                            shift_sales_deduct = $2 
+                        WHERE item_name = $3 AND user_id = $4
+                    `, [diff, newDeductQty, item.name, userId]);
                 }
             }
         }
 
-        res.json({ status: "Success", message: "Lubricant stock successfully update ho gaya hai!" });
+        await client.query('COMMIT');
+
+        res.json({ 
+            status: "Success", 
+            message: "Lubricant stock successfully update ho gaya hai!",
+            currentDate: entryDate,
+            nextWorkingDate: nextWorkingDate
+        });
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error("Update Lubricants Error:", error);
         res.status(500).json({ status: "Error", message: error.message });
+    } finally {
+        client.release();
     }
 };

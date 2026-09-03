@@ -31,7 +31,9 @@
     <div class="action-bar">
         <button class="btn-save" onclick="saveAllReadings()">💾 Save & Close Day</button>
         <button class="btn-reset" onclick="loadCurrentStatusFromDB()">🔄 Refresh Screen</button>
-        <div><strong>Working Date:</strong> <input type="date" id="working_date" onchange="loadCurrentStatusFromDB()">
+        <div>
+            <strong>Date:</strong>
+           <input type="text" id="working_date" placeholder="DD/MM/YYYY" onchange="loadCurrentStatusFromDB()">
         </div>
         <div class="info-tag" id="syncStatus">🔄 Syncing with DB...</div>
     </div>
@@ -162,7 +164,7 @@
         </table>
     </div>
 
-    <script>
+  <script>
         const API_URL = '/api/meter';
 
         let openingValues = {
@@ -176,12 +178,74 @@
 
         let dbRates = { 'diesel': 0, 'super': 0 };
 
-        function getTodayDateString() {
+        // Display Format: DD/MM/YYYY
+        function getTodayDisplayDate() {
             const today = new Date();
-            const year = today.getFullYear();
-            const month = String(today.getMonth() + 1).padStart(2, '0');
             const day = String(today.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const year = today.getFullYear();
+            return `${day}/${month}/${year}`;
+        }
+
+        // Helper: Target date mein 1 din add karne ke liye (Auto-Increment Date)
+        function getNextDayDisplayDate(dateStr) {
+            let year, month, day;
+
+            if (!dateStr) return getTodayDisplayDate();
+
+            if (dateStr.includes('-')) {
+                // YYYY-MM-DD
+                const parts = dateStr.split('-');
+                year = parseInt(parts[0]);
+                month = parseInt(parts[1]) - 1;
+                day = parseInt(parts[2]);
+            } else if (dateStr.includes('/')) {
+                // DD/MM/YYYY
+                const parts = dateStr.split('/');
+                day = parseInt(parts[0]);
+                month = parseInt(parts[1]) - 1;
+                year = parseInt(parts[2]);
+                if (year < 100) year += 2000;
+            } else {
+                return getTodayDisplayDate();
+            }
+
+            const d = new Date(year, month, day);
+            d.setDate(d.getDate() + 1); // 1 din barha do
+
+            const nextDay = String(d.getDate()).padStart(2, '0');
+            const nextMonth = String(d.getMonth() + 1).padStart(2, '0');
+            const nextYear = d.getFullYear();
+
+            return `${nextDay}/${nextMonth}/${nextYear}`;
+        }
+
+        // Helper: Convert DD/MM/YYYY or HTML Datepicker to YYYY-MM-DD for Database/Backend API
+        function convertToDBDate(dateStr) {
+            if (!dateStr) {
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            }
+
+            // Agar pehle se YYYY-MM-DD format me hai
+            if (dateStr.includes('-') && dateStr.split('-')[0].length === 4) {
+                return dateStr;
+            }
+
+            // Agar DD/MM/YYYY format me hai
+            if (dateStr.includes('/')) {
+                const parts = dateStr.split('/');
+                if (parts.length === 3) {
+                    let [day, month, year] = parts;
+                    if (year.length === 2) year = '20' + year;
+                    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+                }
+            }
+
+            return dateStr;
         }
 
         function getMatchedRate(itemName) {
@@ -199,7 +263,7 @@
             return 0;
         }
 
-        async function loadCurrentStatusFromDB() {
+        async function loadCurrentStatusFromDB(isUserAction = false) {
             try {
                 const statusTag = document.getElementById('syncStatus');
                 if (statusTag) {
@@ -207,18 +271,20 @@
                     statusTag.style.color = "#b7950b";
                 }
 
-                const userId = localStorage.getItem('userId');
+                const userId = localStorage.getItem('userId') || localStorage.getItem('user_id') || '1';
                 if (!userId) {
                     alert("User session expired! Pehle login karein.");
                     window.location.href = 'login.html';
                     return;
                 }
 
-                const workingDate = document.getElementById('working_date')?.value || getTodayDateString();
+                const dateInputEl = document.getElementById('working_date');
+                let rawDate = dateInputEl?.value;
+                let workingDate = rawDate ? convertToDBDate(rawDate) : convertToDBDate(getTodayDisplayDate());
 
                 // 1. Fetch Rates
                 try {
-                    const ratesResponse = await fetch(`/api/rates?userId=${userId}`);
+                    const ratesResponse = await fetch(`${API_URL}/rates?userId=${userId}&date=${workingDate}`);
                     const ratesResult = await ratesResponse.json();
                     if (ratesResult.status === "Success" && ratesResult.data) {
                         ratesResult.data.forEach(rate => {
@@ -246,6 +312,19 @@
                 const result = await response.json();
                 if (result.status === "Success" && result.data) {
                     const records = result.data;
+
+                    // Auto Next-Date Logic: Pehli bar load hote waqt agar DB se 31st ki entry milti hai, toh automatically next date (1st) set karo
+                    if (!isUserAction && records.length > 0 && dateInputEl) {
+                        const lastDBDate = records[0].reading_date || records[0].created_at;
+                        if (lastDBDate) {
+                            const nextCalculatedDate = getNextDayDisplayDate(lastDBDate);
+                            if (dateInputEl.value !== nextCalculatedDate) {
+                                dateInputEl.value = nextCalculatedDate;
+                                workingDate = convertToDBDate(nextCalculatedDate);
+                            }
+                        }
+                    }
+
                     updateNozzleOpening('Diesel (N1)', 'open_diesel_n1', records);
                     updateNozzleOpening('Diesel (N2)', 'open_diesel_n2', records);
                     updateNozzleOpening('Diesel (N3)', 'open_diesel_n3', records);
@@ -263,7 +342,7 @@
 
                 if (stockResult.status === "Success" && stockResult.data) {
                     stockResult.data.forEach(row => {
-                        const normalizedType = row.fuel_type.trim().toLowerCase();
+                        const normalizedType = row.fuel_type ? row.fuel_type.trim().toLowerCase() : '';
                         if (normalizedType === 'diesel') tankOpeningStock['Diesel'] = parseFloat(row.current_stock) || 0;
                         if (normalizedType === 'super') tankOpeningStock['Super'] = parseFloat(row.current_stock) || 0;
                     });
@@ -274,7 +353,7 @@
                 if (openDieselEl) openDieselEl.textContent = tankOpeningStock['Diesel'].toFixed(2);
                 if (openSuperEl) openSuperEl.textContent = tankOpeningStock['Super'].toFixed(2);
 
-                // 4. Fetch Lubricants (Fix applied for shift_sales_deduct)
+                // 4. Fetch Lubricants
                 const lubResponse = await fetch(`${API_URL}/lubricant-stock?userId=${userId}&date=${workingDate}`);
                 const lubResult = await lubResponse.json();
 
@@ -291,19 +370,18 @@
                             const autoRate = getMatchedRate(itemName);
                             const defaultPrice = autoRate > 0 ? autoRate : (parseFloat(row.purchase_price) || 0);
 
-                            // Pehle yahan sales value hamesha 0 hardcoded thi, ab DB ka value 'shift_sales_deduct' bind kar diya gaya hai:
                             const salesDeductValue = parseInt(row.shift_sales_deduct) || 0;
 
                             const tr = document.createElement('tr');
                             tr.innerHTML = `
-                        <td class="row-desc">${itemName}</td>
-                        <td><span id="lub_open_${index}" class="val-blue">${row.current_stock}</span></td>
-                        <td><input type="number" id="lub_rec_${index}" class="matrix-input" value="0" oninput="onLubricantReceiptChanged(${index})"></td>
-                        <td><input type="number" step="any" id="lub_rate_${index}" class="matrix-input" value="${defaultPrice}" oninput="onLubricantReceiptChanged(${index})" placeholder="0.00"></td>
-                        <td><input type="number" step="any" id="lub_amount_${index}" class="matrix-input" style="font-weight:bold; color:#27ae60;" value="0.00" oninput="onLubricantAmountManualChanged(${index})" placeholder="0.00"></td>
-                        <td><input type="number" id="lub_sale_${index}" class="matrix-input" value="${salesDeductValue}" oninput="calculateLiveSales()"></td>
-                        <td><span id="lub_close_${index}" class="val-purple">${row.current_stock}</span></td>
-                    `;
+                                <td class="row-desc">${itemName}</td>
+                                <td><span id="lub_open_${index}" class="val-blue">${row.current_stock}</span></td>
+                                <td><input type="number" id="lub_rec_${index}" class="matrix-input" value="0" oninput="onLubricantReceiptChanged(${index})"></td>
+                                <td><input type="number" step="any" id="lub_rate_${index}" class="matrix-input" value="${defaultPrice}" oninput="onLubricantReceiptChanged(${index})" placeholder="0.00"></td>
+                                <td><input type="number" step="any" id="lub_amount_${index}" class="matrix-input" style="font-weight:bold; color:#27ae60;" value="0.00" oninput="onLubricantAmountManualChanged(${index})" placeholder="0.00"></td>
+                                <td><input type="number" id="lub_sale_${index}" class="matrix-input" value="${salesDeductValue}" oninput="calculateLiveSales()"></td>
+                                <td><span id="lub_close_${index}" class="val-purple">${row.current_stock}</span></td>
+                            `;
                             tbody.appendChild(tr);
                         });
                     } else {
@@ -329,7 +407,7 @@
         }
 
         function updateNozzleOpening(nozzleName, elementId, records) {
-            const match = records.find(r => r.nozzle_name.trim().toLowerCase() === nozzleName.trim().toLowerCase());
+            const match = records.find(r => r.nozzle_name && r.nozzle_name.trim().toLowerCase() === nozzleName.trim().toLowerCase());
             openingValues[nozzleName] = match ? (parseFloat(match.closing_reading) || 0) : 0;
             const el = document.getElementById(elementId);
             if (el) el.textContent = openingValues[nozzleName].toFixed(2);
@@ -429,7 +507,7 @@
                     const descEl = rows[i].getElementsByClassName('row-desc')[0];
                     if (!descEl) continue;
 
-                    const itemName = descEl.textContent;
+                    const itemName = descEl.textContent.trim();
                     const opening = lubricantOpeningStock[itemName] || 0;
                     const receipt = parseInt(document.getElementById(`lub_rec_${i}`)?.value) || 0;
                     const sales = parseInt(document.getElementById(`lub_sale_${i}`)?.value) || 0;
@@ -442,7 +520,8 @@
         }
 
         async function saveAllReadings() {
-            const dateInput = document.getElementById('working_date')?.value || getTodayDateString();
+            const rawDate = document.getElementById('working_date')?.value;
+            const dateInput = rawDate ? convertToDBDate(rawDate) : convertToDBDate(getTodayDisplayDate());
             const statusTag = document.getElementById('syncStatus');
 
             if (statusTag) {
@@ -450,7 +529,7 @@
                 statusTag.style.color = "#b7950b";
             }
 
-            const userId = localStorage.getItem('userId');
+            const userId = localStorage.getItem('userId') || localStorage.getItem('user_id') || '1';
             if (!userId) {
                 alert("Session expired! Dobara login karein.");
                 window.location.href = 'login.html';
@@ -477,9 +556,10 @@
                                 fuel_type: 'Diesel',
                                 receipt_liters: recDiesel,
                                 total_amount: amountDiesel,
-                                rate: calculatedRateDiesel,
+                                rate_per_liter: calculatedRateDiesel,
                                 userId: userId,
-                                reading_date: dateInput
+                                receipt_date: dateInput,
+                                sheet_sr_no: 1
                             })
                         })
                     );
@@ -493,9 +573,10 @@
                                 fuel_type: 'Super',
                                 receipt_liters: recSuper,
                                 total_amount: amountSuper,
-                                rate: calculatedRateSuper,
+                                rate_per_liter: calculatedRateSuper,
                                 userId: userId,
-                                reading_date: dateInput
+                                receipt_date: dateInput,
+                                sheet_sr_no: 1
                             })
                         })
                     );
@@ -517,7 +598,7 @@
                     const rawValue = inputEl ? inputEl.value : "";
                     if (rawValue && rawValue.trim() !== "") {
                         nozzlePromises.push(
-                            fetch(`${API_URL}/add`, {
+                            fetch(`${API_URL}/add-reading`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
@@ -544,7 +625,7 @@
                             const descEl = rows[i].getElementsByClassName('row-desc')[0];
                             if (!descEl) continue;
 
-                            const name = descEl.textContent;
+                            const name = descEl.textContent.trim();
                             const recVal = parseInt(document.getElementById(`lub_rec_${i}`)?.value) || 0;
                             const saleVal = parseInt(document.getElementById(`lub_sale_${i}`)?.value) || 0;
 
@@ -552,14 +633,18 @@
                             const amountVal = parseFloat(document.getElementById(`lub_amount_${i}`)?.value) || (recVal * rateVal);
                             const calculatedRate = recVal > 0 ? (amountVal / recVal) : rateVal;
 
-                            lubSales.push({ name: name, qty: saleVal });
+                            if (saleVal > 0) {
+                                lubSales.push({ name: name, qty: saleVal });
+                            }
 
-                            if (recVal > 0) lubReceipts.push({
-                                name: name,
-                                qty: recVal,
-                                total_amount: amountVal,
-                                rate: calculatedRate
-                            });
+                            if (recVal > 0) {
+                                lubReceipts.push({
+                                    name: name,
+                                    qty: recVal,
+                                    price: calculatedRate,
+                                    total_amount: amountVal
+                                });
+                            }
                         }
                     }
                 }
@@ -572,35 +657,84 @@
                             lubricant_sales: lubSales,
                             lubricant_receipts: lubReceipts,
                             userId: userId,
-                            reading_date: dateInput
+                            receipt_date: dateInput,
+                            sheet_sr_no: 1
                         })
                     });
                 }
 
+                // Reset Inputs
                 nozzleConfigs.forEach(t => {
                     const el = document.getElementById(t.inputId);
                     if (el) el.value = "";
                 });
 
+                if (document.getElementById('receipt_diesel')) document.getElementById('receipt_diesel').value = "0";
+                if (document.getElementById('receipt_super')) document.getElementById('receipt_super').value = "0";
+                if (document.getElementById('amount_diesel')) document.getElementById('amount_diesel').value = "0.00";
+                if (document.getElementById('amount_super')) document.getElementById('amount_super').value = "0.00";
+
                 alert("🎉 Shift Closed! Fuel metrics aur Mobil Oil Inventory sab data automatic save ho gaya hai.");
 
-                await loadCurrentStatusFromDB();
+                // 1st ka save hone ke baad UI input ko 2nd par auto-increment kar ke fresh data refresh karna
+                const dateInputEl = document.getElementById('working_date');
+                if (dateInputEl && dateInputEl.value) {
+                    dateInputEl.value = getNextDayDisplayDate(dateInputEl.value);
+                }
+
+                await loadCurrentStatusFromDB(true);
 
             } catch (err) {
                 console.error("Save process broke down:", err);
                 alert("System error!");
-                await loadCurrentStatusFromDB();
+                await loadCurrentStatusFromDB(true);
             }
         }
 
         window.addEventListener('DOMContentLoaded', () => {
             const dateInput = document.getElementById('working_date');
-            if (dateInput) {
-                dateInput.value = getTodayDateString();
+            if (dateInput && !dateInput.value) {
+                dateInput.value = getTodayDisplayDate();
             }
-            loadCurrentStatusFromDB();
+
+            if (dateInput) {
+                dateInput.addEventListener('change', () => {
+                    loadCurrentStatusFromDB(true); // User-initiated date change
+                });
+            }
+
+            // Enter key navigation logic: Focus Next Input on Enter Press
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    const target = e.target;
+
+                    // Sirf input element par Enter ka impact ho (button ya hidden fields par na ho)
+                    if (target.tagName === 'INPUT' && target.type !== 'submit' && target.type !== 'button') {
+                        e.preventDefault(); // Default submit action roko
+
+                        // Screen par mojud tamaam focusable visible inputs focus karne ke liye list karo
+                        const focusableInputs = Array.from(
+                            document.querySelectorAll('input:not([type="hidden"]):not([disabled]):not([readonly])')
+                        );
+
+                        const currentIndex = focusableInputs.indexOf(target);
+
+                        if (currentIndex > -1 && currentIndex < focusableInputs.length - 1) {
+                            const nextInput = focusableInputs[currentIndex + 1];
+                            nextInput.focus();
+
+                            // Value ko poora select kar lo taake naya user input asani se type ho sake
+                            if (typeof nextInput.select === 'function') {
+                                nextInput.select();
+                            }
+                        }
+                    }
+                }
+            });
+
+            loadCurrentStatusFromDB(false); // Initial load
         });
-    </script>
+</script>
 </body>
 
 </html>
