@@ -22,6 +22,7 @@
         <a href="dashboard.html" class="tab-item">📊 Dashboard</a>
         <a href="meter-reading.html" class="tab-item">⛽ Meter Reading</a>
         <a href="daily-sheet.html" class="tab-item">📝 Daily Sheet</a>
+
         <a href="expenses.html" class="tab-item">🏷️ Expense</a>
         <a href="ledgers.html" class="tab-item">📒 Ledgers</a>
         <a href="pricing.html" class="tab-item">🏷️ Pricing</a>
@@ -31,10 +32,7 @@
     <div class="action-bar">
         <button class="btn-save" onclick="saveAllReadings()">💾 Save & Close Day</button>
         <button class="btn-reset" onclick="loadCurrentStatusFromDB()">🔄 Refresh Screen</button>
-        <div>
-            <strong>Date:</strong>
-           <input type="text" id="working_date" placeholder="DD/MM/YYYY" onchange="loadCurrentStatusFromDB()">
-        </div>
+        <div><strong>Working Date:</strong> <input type="date" id="working_date" value="2026-08-19"></div>
         <div class="info-tag" id="syncStatus">🔄 Syncing with DB...</div>
     </div>
 
@@ -67,18 +65,12 @@
                 </tr>
                 <tr>
                     <td class="row-desc">Closing Meter (Ltr)</td>
-                    <td><input type="number" step="any" id="close_diesel_n1" class="matrix-input"
-                            oninput="calculateLiveSales()" placeholder="0"></td>
-                    <td><input type="number" step="any" id="close_diesel_n2" class="matrix-input"
-                            oninput="calculateLiveSales()" placeholder="0"></td>
-                    <td><input type="number" step="any" id="close_diesel_n3" class="matrix-input"
-                            oninput="calculateLiveSales()" placeholder="0"></td>
-                    <td><input type="number" step="any" id="close_diesel_n4" class="matrix-input"
-                            oninput="calculateLiveSales()" placeholder="0"></td>
-                    <td><input type="number" step="any" id="close_super_n1" class="matrix-input"
-                            oninput="calculateLiveSales()" placeholder="0"></td>
-                    <td><input type="number" step="any" id="close_super_n2" class="matrix-input"
-                            oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_diesel_n1" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_diesel_n2" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_diesel_n3" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_diesel_n4" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_super_n1" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
+                    <td><input type="number" step="any" id="close_super_n2" class="matrix-input" oninput="calculateLiveSales()" placeholder="0"></td>
                 </tr>
                 <tr style="background-color: #eaeded;">
                     <td class="row-desc">Calculated Sales (Ltr)</td>
@@ -114,19 +106,13 @@
                 </tr>
                 <tr>
                     <td class="row-desc">New Supply Receipt (+) [Ltr]</td>
-                    <td><input type="number" step="any" id="receipt_diesel" class="matrix-input" value="0"
-                            oninput="onReceiptLitersChanged('diesel')"></td>
-                    <td><input type="number" step="any" id="receipt_super" class="matrix-input" value="0"
-                            oninput="onReceiptLitersChanged('super')"></td>
+                    <td><input type="number" step="any" id="receipt_diesel" class="matrix-input" value="0" oninput="onReceiptLitersChanged('diesel')"></td>
+                    <td><input type="number" step="any" id="receipt_super" class="matrix-input" value="0" oninput="onReceiptLitersChanged('super')"></td>
                 </tr>
                 <tr style="background-color: #e8f8f5;">
                     <td class="row-desc"><strong>Total Stock Receipt Amount (Rs.)</strong></td>
-                    <td><input type="number" step="any" id="amount_diesel" class="matrix-input"
-                            style="font-weight:bold; color:#27ae60;" value="0.00" oninput="calculateLiveSales()"
-                            placeholder="0.00"></td>
-                    <td><input type="number" step="any" id="amount_super" class="matrix-input"
-                            style="font-weight:bold; color:#27ae60;" value="0.00" oninput="calculateLiveSales()"
-                            placeholder="0.00"></td>
+                    <td><input type="number" step="any" id="amount_diesel" class="matrix-input" style="font-weight:bold; color:#27ae60;" value="0.00" oninput="calculateLiveSales()" placeholder="0.00"></td>
+                    <td><input type="number" step="any" id="amount_super" class="matrix-input" style="font-weight:bold; color:#27ae60;" value="0.00" oninput="calculateLiveSales()" placeholder="0.00"></td>
                 </tr>
                 <tr style="background-color: #eaeded;">
                     <td class="row-desc">Sales Deductions (-)</td>
@@ -151,11 +137,11 @@
             <thead>
                 <tr>
                     <th class="header-desc">Mobil Oil Product Variant</th>
-                    <th style="width: 12%;">Opening Stock</th>
-                    <th style="width: 14%;">New Purchase Receipt (+)</th>
+                    <th style="width: 14%;">Opening Stock</th>
+                    <th style="width: 16%;">New Purchase Receipt (+)</th>
                     <th style="width: 16%;">Purchase Rate (Rs.)</th>
                     <th style="width: 18%;">Total Amount (Rs.)</th>
-                    <th style="width: 14%;">Shift Sales Deduct (-)</th>
+                    <th style="width: 16%;">Shift Sales Deduct (-)</th>
                     <th style="width: 16%;">Closing Stock Balance</th>
                 </tr>
             </thead>
@@ -164,7 +150,7 @@
         </table>
     </div>
 
-  <script>
+    <script>
         const API_URL = '/api/meter';
 
         let openingValues = {
@@ -174,96 +160,17 @@
 
         let tankOpeningStock = { 'Diesel': 0, 'Super': 0 };
         let lubricantOpeningStock = {};
-        let lubricantPricingMap = {};
-
         let dbRates = { 'diesel': 0, 'super': 0 };
 
-        // Display Format: DD/MM/YYYY
-        function getTodayDisplayDate() {
+        function getTodayDateString() {
             const today = new Date();
-            const day = String(today.getDate()).padStart(2, '0');
-            const month = String(today.getMonth() + 1).padStart(2, '0');
             const year = today.getFullYear();
-            return `${day}/${month}/${year}`;
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
         }
 
-        // Helper: Target date mein 1 din add karne ke liye (Auto-Increment Date)
-        function getNextDayDisplayDate(dateStr) {
-            let year, month, day;
-
-            if (!dateStr) return getTodayDisplayDate();
-
-            if (dateStr.includes('-')) {
-                // YYYY-MM-DD
-                const parts = dateStr.split('-');
-                year = parseInt(parts[0]);
-                month = parseInt(parts[1]) - 1;
-                day = parseInt(parts[2]);
-            } else if (dateStr.includes('/')) {
-                // DD/MM/YYYY
-                const parts = dateStr.split('/');
-                day = parseInt(parts[0]);
-                month = parseInt(parts[1]) - 1;
-                year = parseInt(parts[2]);
-                if (year < 100) year += 2000;
-            } else {
-                return getTodayDisplayDate();
-            }
-
-            const d = new Date(year, month, day);
-            d.setDate(d.getDate() + 1); // 1 din barha do
-
-            const nextDay = String(d.getDate()).padStart(2, '0');
-            const nextMonth = String(d.getMonth() + 1).padStart(2, '0');
-            const nextYear = d.getFullYear();
-
-            return `${nextDay}/${nextMonth}/${nextYear}`;
-        }
-
-        // Helper: Convert DD/MM/YYYY or HTML Datepicker to YYYY-MM-DD for Database/Backend API
-        function convertToDBDate(dateStr) {
-            if (!dateStr) {
-                const today = new Date();
-                const year = today.getFullYear();
-                const month = String(today.getMonth() + 1).padStart(2, '0');
-                const day = String(today.getDate()).padStart(2, '0');
-                return `${year}-${month}-${day}`;
-            }
-
-            // Agar pehle se YYYY-MM-DD format me hai
-            if (dateStr.includes('-') && dateStr.split('-')[0].length === 4) {
-                return dateStr;
-            }
-
-            // Agar DD/MM/YYYY format me hai
-            if (dateStr.includes('/')) {
-                const parts = dateStr.split('/');
-                if (parts.length === 3) {
-                    let [day, month, year] = parts;
-                    if (year.length === 2) year = '20' + year;
-                    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-                }
-            }
-
-            return dateStr;
-        }
-
-        function getMatchedRate(itemName) {
-            if (!itemName) return 0;
-            const target = itemName.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-            if (lubricantPricingMap[target]) return lubricantPricingMap[target];
-
-            for (let key in lubricantPricingMap) {
-                const cleanKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-                if (cleanKey.includes(target) || target.includes(cleanKey)) {
-                    return lubricantPricingMap[key];
-                }
-            }
-            return 0;
-        }
-
-        async function loadCurrentStatusFromDB(isUserAction = false) {
+        async function loadCurrentStatusFromDB() {
             try {
                 const statusTag = document.getElementById('syncStatus');
                 if (statusTag) {
@@ -271,60 +178,20 @@
                     statusTag.style.color = "#b7950b";
                 }
 
-                const userId = localStorage.getItem('userId') || localStorage.getItem('user_id') || '1';
+                const userId = localStorage.getItem('userId');
                 if (!userId) {
                     alert("User session expired! Pehle login karein.");
                     window.location.href = 'login.html';
                     return;
                 }
 
-                const dateInputEl = document.getElementById('working_date');
-                let rawDate = dateInputEl?.value;
-                let workingDate = rawDate ? convertToDBDate(rawDate) : convertToDBDate(getTodayDisplayDate());
+                const workingDate = document.getElementById('working_date')?.value || getTodayDateString();
 
-                // 1. Fetch Rates
-                try {
-                    const ratesResponse = await fetch(`${API_URL}/rates?userId=${userId}&date=${workingDate}`);
-                    const ratesResult = await ratesResponse.json();
-                    if (ratesResult.status === "Success" && ratesResult.data) {
-                        ratesResult.data.forEach(rate => {
-                            const pType = rate.product_type ? rate.product_type.trim().toLowerCase() : '';
-                            const pName = rate.product_name ? rate.product_name.trim().toLowerCase() : '';
-                            const catName = rate.specific_category ? rate.specific_category.trim().toLowerCase() : '';
-
-                            const rateVal = parseFloat(rate.purchase_price) > 0
-                                ? parseFloat(rate.purchase_price)
-                                : (parseFloat(rate.rate_per_litre) || 0);
-
-                            if (pType === 'diesel') dbRates['diesel'] = rateVal;
-                            if (pType === 'super') dbRates['super'] = rateVal;
-
-                            if (pName) lubricantPricingMap[pName] = rateVal;
-                            if (catName) lubricantPricingMap[catName] = rateVal;
-                        });
-                    }
-                } catch (e) {
-                    console.log("Could not auto-fetch pricing rates", e);
-                }
-
-                // 2. Fetch Nozzle Meter Readings
+                // A. Nozzle readings load
                 const response = await fetch(`${API_URL}/all?userId=${userId}&date=${workingDate}`);
                 const result = await response.json();
                 if (result.status === "Success" && result.data) {
                     const records = result.data;
-
-                    // Auto Next-Date Logic: Pehli bar load hote waqt agar DB se 31st ki entry milti hai, toh automatically next date (1st) set karo
-                    if (!isUserAction && records.length > 0 && dateInputEl) {
-                        const lastDBDate = records[0].reading_date || records[0].created_at;
-                        if (lastDBDate) {
-                            const nextCalculatedDate = getNextDayDisplayDate(lastDBDate);
-                            if (dateInputEl.value !== nextCalculatedDate) {
-                                dateInputEl.value = nextCalculatedDate;
-                                workingDate = convertToDBDate(nextCalculatedDate);
-                            }
-                        }
-                    }
-
                     updateNozzleOpening('Diesel (N1)', 'open_diesel_n1', records);
                     updateNozzleOpening('Diesel (N2)', 'open_diesel_n2', records);
                     updateNozzleOpening('Diesel (N3)', 'open_diesel_n3', records);
@@ -333,7 +200,7 @@
                     updateNozzleOpening('Super (N2)', 'open_super_n2', records);
                 }
 
-                // 3. Fetch Underground Tank Stock
+                // B. Fuel Tank stock load
                 const stockResponse = await fetch(`${API_URL}/tank-stock?userId=${userId}&date=${workingDate}`);
                 const stockResult = await stockResponse.json();
 
@@ -342,7 +209,7 @@
 
                 if (stockResult.status === "Success" && stockResult.data) {
                     stockResult.data.forEach(row => {
-                        const normalizedType = row.fuel_type ? row.fuel_type.trim().toLowerCase() : '';
+                        const normalizedType = row.fuel_type.trim().toLowerCase();
                         if (normalizedType === 'diesel') tankOpeningStock['Diesel'] = parseFloat(row.current_stock) || 0;
                         if (normalizedType === 'super') tankOpeningStock['Super'] = parseFloat(row.current_stock) || 0;
                     });
@@ -353,7 +220,26 @@
                 if (openDieselEl) openDieselEl.textContent = tankOpeningStock['Diesel'].toFixed(2);
                 if (openSuperEl) openSuperEl.textContent = tankOpeningStock['Super'].toFixed(2);
 
-                // 4. Fetch Lubricants
+                // C. Fetch Rates silently from DB fuel_rates table
+                try {
+                    const ratesResponse = await fetch(`/api/rates?userId=${userId}`);
+                    const ratesResult = await ratesResponse.json();
+                    if (ratesResult.status === "Success" && ratesResult.data) {
+                        ratesResult.data.forEach(rate => {
+                            const pType = rate.product_type ? rate.product_type.toLowerCase() : '';
+                            const rateVal = parseFloat(rate.purchase_price) || parseFloat(rate.rate_per_litre) || 0;
+                            if (pType === 'diesel') {
+                                dbRates['diesel'] = rateVal;
+                            } else if (pType === 'super') {
+                                dbRates['super'] = rateVal;
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.log("Could not auto-fetch fuel rates", e);
+                }
+
+                // D. Mobil Oil Lubricant Stock Load
                 const lubResponse = await fetch(`${API_URL}/lubricant-stock?userId=${userId}&date=${workingDate}`);
                 const lubResult = await lubResponse.json();
 
@@ -364,22 +250,19 @@
 
                     if (lubResult.status === "Success" && lubResult.data && lubResult.data.length > 0) {
                         lubResult.data.forEach((row, index) => {
-                            const itemName = row.item_name;
-                            lubricantOpeningStock[itemName] = parseInt(row.current_stock) || 0;
-
-                            const autoRate = getMatchedRate(itemName);
-                            const defaultPrice = autoRate > 0 ? autoRate : (parseFloat(row.purchase_price) || 0);
-
-                            const salesDeductValue = parseInt(row.shift_sales_deduct) || 0;
+                            lubricantOpeningStock[row.item_name] = parseInt(row.current_stock) || 0;
+                            
+                            // Rate mapping from DB
+                            const dbRate = parseFloat(row.purchase_price || row.purchase_rate || row.rate_per_litre) || 0;
 
                             const tr = document.createElement('tr');
                             tr.innerHTML = `
-                                <td class="row-desc">${itemName}</td>
+                                <td class="row-desc">${row.item_name}</td>
                                 <td><span id="lub_open_${index}" class="val-blue">${row.current_stock}</span></td>
-                                <td><input type="number" id="lub_rec_${index}" class="matrix-input" value="0" oninput="onLubricantReceiptChanged(${index})"></td>
-                                <td><input type="number" step="any" id="lub_rate_${index}" class="matrix-input" value="${defaultPrice}" oninput="onLubricantReceiptChanged(${index})" placeholder="0.00"></td>
-                                <td><input type="number" step="any" id="lub_amount_${index}" class="matrix-input" style="font-weight:bold; color:#27ae60;" value="0.00" oninput="onLubricantAmountManualChanged(${index})" placeholder="0.00"></td>
-                                <td><input type="number" id="lub_sale_${index}" class="matrix-input" value="${salesDeductValue}" oninput="calculateLiveSales()"></td>
+                                <td><input type="number" id="lub_rec_${index}" class="matrix-input" value="0" oninput="calculateLiveSales()"></td>
+                                <td><input type="number" step="any" id="lub_rate_${index}" class="matrix-input" value="${dbRate}" oninput="calculateLiveSales()"></td>
+                                <td><span id="lub_amount_${index}" class="val-green" style="font-weight:bold; color:#27ae60;">0.00</span></td>
+                                <td><input type="number" id="lub_sale_${index}" class="matrix-input" value="0" oninput="calculateLiveSales()"></td>
                                 <td><span id="lub_close_${index}" class="val-purple">${row.current_stock}</span></td>
                             `;
                             tbody.appendChild(tr);
@@ -407,7 +290,7 @@
         }
 
         function updateNozzleOpening(nozzleName, elementId, records) {
-            const match = records.find(r => r.nozzle_name && r.nozzle_name.trim().toLowerCase() === nozzleName.trim().toLowerCase());
+            const match = records.find(r => r.nozzle_name.trim().toLowerCase() === nozzleName.trim().toLowerCase());
             openingValues[nozzleName] = match ? (parseFloat(match.closing_reading) || 0) : 0;
             const el = document.getElementById(elementId);
             if (el) el.textContent = openingValues[nozzleName].toFixed(2);
@@ -428,41 +311,9 @@
             calculateLiveSales();
         }
 
-        function onLubricantReceiptChanged(index) {
-            const recQty = parseInt(document.getElementById(`lub_rec_${index}`)?.value) || 0;
-            let rateInput = document.getElementById(`lub_rate_${index}`);
-            let currentRate = parseFloat(rateInput?.value) || 0;
-
-            if (currentRate === 0) {
-                const tr = document.getElementById(`lub_rec_${index}`)?.closest('tr');
-                const itemName = tr ? tr.getElementsByClassName('row-desc')[0]?.textContent.trim() : '';
-
-                const matchedRate = getMatchedRate(itemName);
-                if (matchedRate > 0) {
-                    currentRate = matchedRate;
-                    if (rateInput) rateInput.value = currentRate;
-                }
-            }
-
-            if (recQty > 0 && currentRate > 0) {
-                document.getElementById(`lub_amount_${index}`).value = (recQty * currentRate).toFixed(2);
-            } else if (recQty === 0) {
-                document.getElementById(`lub_amount_${index}`).value = "0.00";
-            }
-            calculateLiveSales();
-        }
-
-        function onLubricantAmountManualChanged(index) {
-            const recQty = parseInt(document.getElementById(`lub_rec_${index}`)?.value) || 0;
-            const amount = parseFloat(document.getElementById(`lub_amount_${index}`)?.value) || 0;
-
-            if (recQty > 0 && amount > 0) {
-                document.getElementById(`lub_rate_${index}`).value = (amount / recQty).toFixed(2);
-            }
-            calculateLiveSales();
-        }
-
+        // Live Dynamic Calculator Function
         function calculateLiveSales() {
+            // Get Closing Nozzle Readings
             const close_dn1_val = document.getElementById('close_diesel_n1')?.value;
             const close_dn2_val = document.getElementById('close_diesel_n2')?.value;
             const close_dn3_val = document.getElementById('close_diesel_n3')?.value;
@@ -470,6 +321,7 @@
             const close_sn1_val = document.getElementById('close_super_n1')?.value;
             const close_sn2_val = document.getElementById('close_super_n2')?.value;
 
+            // Compute sales per nozzle
             const sales_dn1 = (close_dn1_val !== "" && close_dn1_val !== undefined) ? Math.max(0, parseFloat(close_dn1_val) - (openingValues['Diesel (N1)'] || 0)) : 0;
             const sales_dn2 = (close_dn2_val !== "" && close_dn2_val !== undefined) ? Math.max(0, parseFloat(close_dn2_val) - (openingValues['Diesel (N2)'] || 0)) : 0;
             const sales_dn3 = (close_dn3_val !== "" && close_dn3_val !== undefined) ? Math.max(0, parseFloat(close_dn3_val) - (openingValues['Diesel (N3)'] || 0)) : 0;
@@ -478,6 +330,7 @@
             const sales_sn1 = (close_sn1_val !== "" && close_sn1_val !== undefined) ? Math.max(0, parseFloat(close_sn1_val) - (openingValues['Super (N1)'] || 0)) : 0;
             const sales_sn2 = (close_sn2_val !== "" && close_sn2_val !== undefined) ? Math.max(0, parseFloat(close_sn2_val) - (openingValues['Super (N2)'] || 0)) : 0;
 
+            // Render Nozzle Sales
             if (document.getElementById('sales_diesel_n1')) document.getElementById('sales_diesel_n1').textContent = sales_dn1.toFixed(2);
             if (document.getElementById('sales_diesel_n2')) document.getElementById('sales_diesel_n2').textContent = sales_dn2.toFixed(2);
             if (document.getElementById('sales_diesel_n3')) document.getElementById('sales_diesel_n3').textContent = sales_dn3.toFixed(2);
@@ -491,15 +344,18 @@
             if (document.getElementById('stock_deduct_diesel')) document.getElementById('stock_deduct_diesel').textContent = total_diesel_sales.toFixed(2);
             if (document.getElementById('stock_deduct_super')) document.getElementById('stock_deduct_super').textContent = total_super_sales.toFixed(2);
 
+            // Fetch Tank New Receipts
             const rec_diesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
             const rec_super = parseFloat(document.getElementById('receipt_super')?.value) || 0;
 
+            // Closing Stock = Opening + Receipt - Sales
             const closing_diesel_tank = (tankOpeningStock['Diesel'] || 0) + rec_diesel - total_diesel_sales;
             const closing_super_tank = (tankOpeningStock['Super'] || 0) + rec_super - total_super_sales;
 
             if (document.getElementById('stock_close_diesel')) document.getElementById('stock_close_diesel').textContent = closing_diesel_tank.toFixed(2);
             if (document.getElementById('stock_close_super')) document.getElementById('stock_close_super').textContent = closing_super_tank.toFixed(2);
 
+            // Mobil Oil calculations
             const tbody = document.getElementById('lubricantBody');
             if (tbody) {
                 const rows = tbody.getElementsByTagName('tr');
@@ -507,10 +363,16 @@
                     const descEl = rows[i].getElementsByClassName('row-desc')[0];
                     if (!descEl) continue;
 
-                    const itemName = descEl.textContent.trim();
+                    const itemName = descEl.textContent;
                     const opening = lubricantOpeningStock[itemName] || 0;
                     const receipt = parseInt(document.getElementById(`lub_rec_${i}`)?.value) || 0;
+                    const rate = parseFloat(document.getElementById(`lub_rate_${i}`)?.value) || 0;
                     const sales = parseInt(document.getElementById(`lub_sale_${i}`)?.value) || 0;
+
+                    // Calculate Total Purchase Amount
+                    const totalAmount = receipt * rate;
+                    const amountEl = document.getElementById(`lub_amount_${i}`);
+                    if (amountEl) amountEl.textContent = totalAmount.toFixed(2);
 
                     const closing = opening + receipt - sales;
                     const lubCloseEl = document.getElementById(`lub_close_${i}`);
@@ -520,8 +382,7 @@
         }
 
         async function saveAllReadings() {
-            const rawDate = document.getElementById('working_date')?.value;
-            const dateInput = rawDate ? convertToDBDate(rawDate) : convertToDBDate(getTodayDisplayDate());
+            const dateInput = document.getElementById('working_date')?.value || getTodayDateString();
             const statusTag = document.getElementById('syncStatus');
 
             if (statusTag) {
@@ -529,7 +390,7 @@
                 statusTag.style.color = "#b7950b";
             }
 
-            const userId = localStorage.getItem('userId') || localStorage.getItem('user_id') || '1';
+            const userId = localStorage.getItem('userId');
             if (!userId) {
                 alert("Session expired! Dobara login karein.");
                 window.location.href = 'login.html';
@@ -537,9 +398,10 @@
             }
 
             try {
+                // 1. Fuel Tank Receipts Update (DL for Diesel, SP for Super -> Daily Sheet)
                 const recDiesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
                 const recSuper = parseFloat(document.getElementById('receipt_super')?.value) || 0;
-
+                
                 const amountDiesel = parseFloat(document.getElementById('amount_diesel')?.value) || 0;
                 const amountSuper = parseFloat(document.getElementById('amount_super')?.value) || 0;
 
@@ -552,14 +414,14 @@
                         fetch(`${API_URL}/update-receipt`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                fuel_type: 'Diesel',
-                                receipt_liters: recDiesel,
+                            body: JSON.stringify({ 
+                                fuel_type: 'Diesel', 
+                                code_prefix: 'DL',
+                                receipt_liters: recDiesel, 
                                 total_amount: amountDiesel,
-                                rate_per_liter: calculatedRateDiesel,
-                                userId: userId,
-                                receipt_date: dateInput,
-                                sheet_sr_no: 1
+                                rate: calculatedRateDiesel,
+                                userId: userId, 
+                                reading_date: dateInput 
                             })
                         })
                     );
@@ -569,20 +431,21 @@
                         fetch(`${API_URL}/update-receipt`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                fuel_type: 'Super',
-                                receipt_liters: recSuper,
+                            body: JSON.stringify({ 
+                                fuel_type: 'Super', 
+                                code_prefix: 'SP',
+                                receipt_liters: recSuper, 
                                 total_amount: amountSuper,
-                                rate_per_liter: calculatedRateSuper,
-                                userId: userId,
-                                receipt_date: dateInput,
-                                sheet_sr_no: 1
+                                rate: calculatedRateSuper,
+                                userId: userId, 
+                                reading_date: dateInput 
                             })
                         })
                     );
                 }
                 await Promise.all(tankReceiptPromises);
 
+                // 2. Fuel Nozzles Update
                 const nozzleConfigs = [
                     { name: 'Diesel (N1)', type: 'Diesel', inputId: 'close_diesel_n1' },
                     { name: 'Diesel (N2)', type: 'Diesel', inputId: 'close_diesel_n2' },
@@ -598,7 +461,7 @@
                     const rawValue = inputEl ? inputEl.value : "";
                     if (rawValue && rawValue.trim() !== "") {
                         nozzlePromises.push(
-                            fetch(`${API_URL}/add-reading`, {
+                            fetch(`${API_URL}/add`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
@@ -614,6 +477,7 @@
                 }
                 await Promise.all(nozzlePromises);
 
+                // 3. Mobil Oil Batch Process (LUB tag transfer to Daily Sheet)
                 const lubSales = [];
                 const lubReceipts = [];
                 const tbody = document.getElementById('lubricantBody');
@@ -625,25 +489,16 @@
                             const descEl = rows[i].getElementsByClassName('row-desc')[0];
                             if (!descEl) continue;
 
-                            const name = descEl.textContent.trim();
+                            const name = descEl.textContent;
                             const recVal = parseInt(document.getElementById(`lub_rec_${i}`)?.value) || 0;
+                            const rateVal = parseFloat(document.getElementById(`lub_rate_${i}`)?.value) || 0;
                             const saleVal = parseInt(document.getElementById(`lub_sale_${i}`)?.value) || 0;
 
-                            const rateVal = parseFloat(document.getElementById(`lub_rate_${i}`)?.value) || 0;
-                            const amountVal = parseFloat(document.getElementById(`lub_amount_${i}`)?.value) || (recVal * rateVal);
-                            const calculatedRate = recVal > 0 ? (amountVal / recVal) : rateVal;
-
                             if (saleVal > 0) {
-                                lubSales.push({ name: name, qty: saleVal });
+                                lubSales.push({ name: name, qty: saleVal, rate: rateVal, category: 'LUB' });
                             }
-
                             if (recVal > 0) {
-                                lubReceipts.push({
-                                    name: name,
-                                    qty: recVal,
-                                    price: calculatedRate,
-                                    total_amount: amountVal
-                                });
+                                lubReceipts.push({ name: name, qty: recVal, rate: rateVal, category: 'LUB', total_amount: recVal * rateVal });
                             }
                         }
                     }
@@ -653,88 +508,49 @@
                     await fetch(`${API_URL}/update-lubricants`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            lubricant_sales: lubSales,
-                            lubricant_receipts: lubReceipts,
-                            userId: userId,
-                            receipt_date: dateInput,
-                            sheet_sr_no: 1
+                        body: JSON.stringify({ 
+                            lubricant_sales: lubSales, 
+                            lubricant_receipts: lubReceipts, 
+                            category: 'LUB',
+                            userId: userId, 
+                            reading_date: dateInput 
                         })
                     });
                 }
 
-                // Reset Inputs
+                // Reset inputs
                 nozzleConfigs.forEach(t => {
                     const el = document.getElementById(t.inputId);
                     if (el) el.value = "";
                 });
 
-                if (document.getElementById('receipt_diesel')) document.getElementById('receipt_diesel').value = "0";
-                if (document.getElementById('receipt_super')) document.getElementById('receipt_super').value = "0";
-                if (document.getElementById('amount_diesel')) document.getElementById('amount_diesel').value = "0.00";
-                if (document.getElementById('amount_super')) document.getElementById('amount_super').value = "0.00";
+                alert("🎉 Shift Closed! Fuel metrics aur Mobil Oil Inventory sab data automatic safe synchronised update ho gaya hai.");
 
-                alert("🎉 Shift Closed! Fuel metrics aur Mobil Oil Inventory sab data automatic save ho gaya hai.");
-
-                // 1st ka save hone ke baad UI input ko 2nd par auto-increment kar ke fresh data refresh karna
-                const dateInputEl = document.getElementById('working_date');
-                if (dateInputEl && dateInputEl.value) {
-                    dateInputEl.value = getNextDayDisplayDate(dateInputEl.value);
-                }
-
-                await loadCurrentStatusFromDB(true);
+                await loadCurrentStatusFromDB();
 
             } catch (err) {
                 console.error("Save process broke down:", err);
-                alert("System error!");
-                await loadCurrentStatusFromDB(true);
+                alert("System error or connection field array layout mismatch.");
+                await loadCurrentStatusFromDB();
             }
         }
 
         window.addEventListener('DOMContentLoaded', () => {
             const dateInput = document.getElementById('working_date');
-            if (dateInput && !dateInput.value) {
-                dateInput.value = getTodayDisplayDate();
-            }
-
             if (dateInput) {
-                dateInput.addEventListener('change', () => {
-                    loadCurrentStatusFromDB(true); // User-initiated date change
-                });
+                dateInput.value = getTodayDateString();
+                dateInput.addEventListener('change', loadCurrentStatusFromDB);
             }
-
-            // Enter key navigation logic: Focus Next Input on Enter Press
-            document.addEventListener('keydown', function (e) {
-                if (e.key === 'Enter') {
-                    const target = e.target;
-
-                    // Sirf input element par Enter ka impact ho (button ya hidden fields par na ho)
-                    if (target.tagName === 'INPUT' && target.type !== 'submit' && target.type !== 'button') {
-                        e.preventDefault(); // Default submit action roko
-
-                        // Screen par mojud tamaam focusable visible inputs focus karne ke liye list karo
-                        const focusableInputs = Array.from(
-                            document.querySelectorAll('input:not([type="hidden"]):not([disabled]):not([readonly])')
-                        );
-
-                        const currentIndex = focusableInputs.indexOf(target);
-
-                        if (currentIndex > -1 && currentIndex < focusableInputs.length - 1) {
-                            const nextInput = focusableInputs[currentIndex + 1];
-                            nextInput.focus();
-
-                            // Value ko poora select kar lo taake naya user input asani se type ho sake
-                            if (typeof nextInput.select === 'function') {
-                                nextInput.select();
-                            }
-                        }
-                    }
-                }
-            });
-
-            loadCurrentStatusFromDB(false); // Initial load
+            loadCurrentStatusFromDB();
         });
-</script>
+
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            localStorage.removeItem('userId');
+            localStorage.removeItem('username');
+            alert("Aap successfully logout ho chuke hain!");
+            window.location.href = 'login.html';
+        });
+    </script>
 </body>
 
 </html>
