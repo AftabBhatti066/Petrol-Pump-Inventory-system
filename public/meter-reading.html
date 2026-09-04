@@ -20,7 +20,7 @@
 
     <div class="tabs-container">
         <a href="dashboard.html" class="tab-item">📊 Dashboard</a>
-        <a href="meter-reading.html" class="tab-item">⛽ Meter Reading</a>
+        <a href="meter-reading.html" class="tab-item active">⛽ Meter Reading</a>
         <a href="daily-sheet.html" class="tab-item">📝 Daily Sheet</a>
 
         <a href="expenses.html" class="tab-item">🏷️ Expense</a>
@@ -32,7 +32,7 @@
     <div class="action-bar">
         <button class="btn-save" onclick="saveAllReadings()">💾 Save & Close Day</button>
         <button class="btn-reset" onclick="loadCurrentStatusFromDB()">🔄 Refresh Screen</button>
-        <div><strong>Working Date:</strong> <input type="date" id="working_date" value="2026-08-19"></div>
+        <div><strong>Working Date:</strong> <input type="date" id="working_date"></div>
         <div class="info-tag" id="syncStatus">🔄 Syncing with DB...</div>
     </div>
 
@@ -151,406 +151,455 @@
     </div>
 
     <script>
-        const API_URL = '/api/meter';
+    const API_URL = '/api/meter';
 
-        let openingValues = {
+    let openingValues = {
+        'Diesel (N1)': 0, 'Diesel (N2)': 0, 'Diesel (N3)': 0, 'Diesel (N4)': 0,
+        'Super (N1)': 0, 'Super (N2)': 0
+    };
+
+    let tankOpeningStock = { 'Diesel': 0, 'Super': 0 };
+    let lubricantOpeningStock = {};
+    let dbRates = { 'diesel': 0, 'super': 0 };
+
+    function getTodayDateString(d = new Date()) {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    // Helper: Local date parser to prevent UTC Timezone shifts
+    function parseLocalDate(dateStr) {
+        const parts = dateStr.split('-');
+        return new Date(parts[0], parts[1] - 1, parts[2]);
+    }
+
+    // Helper: Safely calculate next day string
+    function getNextDayString(dateStr) {
+        const d = parseLocalDate(dateStr);
+        d.setDate(d.getDate() + 1);
+        return getTodayDateString(d);
+    }
+
+    function resetOpeningDataStructures() {
+        openingValues = {
             'Diesel (N1)': 0, 'Diesel (N2)': 0, 'Diesel (N3)': 0, 'Diesel (N4)': 0,
             'Super (N1)': 0, 'Super (N2)': 0
         };
+        tankOpeningStock = { 'Diesel': 0, 'Super': 0 };
+    }
 
-        let tankOpeningStock = { 'Diesel': 0, 'Super': 0 };
-        let lubricantOpeningStock = {};
-        let dbRates = { 'diesel': 0, 'super': 0 };
-
-        function getTodayDateString() {
-            const today = new Date();
-            const year = today.getFullYear();
-            const month = String(today.getMonth() + 1).padStart(2, '0');
-            const day = String(today.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-        }
-
-        async function loadCurrentStatusFromDB() {
-            try {
-                const statusTag = document.getElementById('syncStatus');
-                if (statusTag) {
-                    statusTag.textContent = "🔄 Syncing with DB...";
-                    statusTag.style.color = "#b7950b";
-                }
-
-                const userId = localStorage.getItem('userId');
-                if (!userId) {
-                    alert("User session expired! Pehle login karein.");
-                    window.location.href = 'login.html';
-                    return;
-                }
-
-                const workingDate = document.getElementById('working_date')?.value || getTodayDateString();
-
-                // A. Nozzle readings load
-                const response = await fetch(`${API_URL}/all?userId=${userId}&date=${workingDate}`);
-                const result = await response.json();
-                if (result.status === "Success" && result.data) {
-                    const records = result.data;
-                    updateNozzleOpening('Diesel (N1)', 'open_diesel_n1', records);
-                    updateNozzleOpening('Diesel (N2)', 'open_diesel_n2', records);
-                    updateNozzleOpening('Diesel (N3)', 'open_diesel_n3', records);
-                    updateNozzleOpening('Diesel (N4)', 'open_diesel_n4', records);
-                    updateNozzleOpening('Super (N1)', 'open_super_n1', records);
-                    updateNozzleOpening('Super (N2)', 'open_super_n2', records);
-                }
-
-                // B. Fuel Tank stock load
-                const stockResponse = await fetch(`${API_URL}/tank-stock?userId=${userId}&date=${workingDate}`);
-                const stockResult = await stockResponse.json();
-
-                tankOpeningStock['Diesel'] = 0;
-                tankOpeningStock['Super'] = 0;
-
-                if (stockResult.status === "Success" && stockResult.data) {
-                    stockResult.data.forEach(row => {
-                        const normalizedType = row.fuel_type.trim().toLowerCase();
-                        if (normalizedType === 'diesel') tankOpeningStock['Diesel'] = parseFloat(row.current_stock) || 0;
-                        if (normalizedType === 'super') tankOpeningStock['Super'] = parseFloat(row.current_stock) || 0;
-                    });
-                }
-
-                const openDieselEl = document.getElementById('stock_open_diesel');
-                const openSuperEl = document.getElementById('stock_open_super');
-                if (openDieselEl) openDieselEl.textContent = tankOpeningStock['Diesel'].toFixed(2);
-                if (openSuperEl) openSuperEl.textContent = tankOpeningStock['Super'].toFixed(2);
-
-                // C. Fetch Rates silently from DB fuel_rates table
-                try {
-                    const ratesResponse = await fetch(`/api/rates?userId=${userId}`);
-                    const ratesResult = await ratesResponse.json();
-                    if (ratesResult.status === "Success" && ratesResult.data) {
-                        ratesResult.data.forEach(rate => {
-                            const pType = rate.product_type ? rate.product_type.toLowerCase() : '';
-                            const rateVal = parseFloat(rate.purchase_price) || parseFloat(rate.rate_per_litre) || 0;
-                            if (pType === 'diesel') {
-                                dbRates['diesel'] = rateVal;
-                            } else if (pType === 'super') {
-                                dbRates['super'] = rateVal;
-                            }
-                        });
-                    }
-                } catch (e) {
-                    console.log("Could not auto-fetch fuel rates", e);
-                }
-
-                // D. Mobil Oil Lubricant Stock Load
-                const lubResponse = await fetch(`${API_URL}/lubricant-stock?userId=${userId}&date=${workingDate}`);
-                const lubResult = await lubResponse.json();
-
-                const tbody = document.getElementById('lubricantBody');
-                if (tbody) {
-                    tbody.innerHTML = "";
-                    lubricantOpeningStock = {};
-
-                    if (lubResult.status === "Success" && lubResult.data && lubResult.data.length > 0) {
-                        lubResult.data.forEach((row, index) => {
-                            lubricantOpeningStock[row.item_name] = parseInt(row.current_stock) || 0;
-                            
-                            // Rate mapping from DB
-                            const dbRate = parseFloat(row.purchase_price || row.purchase_rate || row.rate_per_litre) || 0;
-
-                            const tr = document.createElement('tr');
-                            tr.innerHTML = `
-                                <td class="row-desc">${row.item_name}</td>
-                                <td><span id="lub_open_${index}" class="val-blue">${row.current_stock}</span></td>
-                                <td><input type="number" id="lub_rec_${index}" class="matrix-input" value="0" oninput="calculateLiveSales()"></td>
-                                <td><input type="number" step="any" id="lub_rate_${index}" class="matrix-input" value="${dbRate}" oninput="calculateLiveSales()"></td>
-                                <td><span id="lub_amount_${index}" class="val-green" style="font-weight:bold; color:#27ae60;">0.00</span></td>
-                                <td><input type="number" id="lub_sale_${index}" class="matrix-input" value="0" oninput="calculateLiveSales()"></td>
-                                <td><span id="lub_close_${index}" class="val-purple">${row.current_stock}</span></td>
-                            `;
-                            tbody.appendChild(tr);
-                        });
-                    } else {
-                        tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="color: #7f8c8d; padding: 15px; font-weight: bold;">Is user ke liye koi lubricant stock mojud nahi hai.</td></tr>`;
-                    }
-                }
-
-                if (statusTag) {
-                    statusTag.textContent = "✅ Connected to Live DB";
-                    statusTag.style.color = "#27ae60";
-                }
-
-                calculateLiveSales();
-
-            } catch (error) {
-                console.error("Sync Failure:", error);
-                const statusTag = document.getElementById('syncStatus');
-                if (statusTag) {
-                    statusTag.textContent = "❌ DB Connection Failed!";
-                    statusTag.style.color = "#c0392b";
-                }
-            }
-        }
-
-        function updateNozzleOpening(nozzleName, elementId, records) {
-            const match = records.find(r => r.nozzle_name.trim().toLowerCase() === nozzleName.trim().toLowerCase());
-            openingValues[nozzleName] = match ? (parseFloat(match.closing_reading) || 0) : 0;
-            const el = document.getElementById(elementId);
-            if (el) el.textContent = openingValues[nozzleName].toFixed(2);
-        }
-
-        function onReceiptLitersChanged(type) {
-            if (type === 'diesel') {
-                const recDiesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
-                if (recDiesel > 0 && dbRates['diesel'] > 0) {
-                    document.getElementById('amount_diesel').value = (recDiesel * dbRates['diesel']).toFixed(2);
-                }
-            } else if (type === 'super') {
-                const recSuper = parseFloat(document.getElementById('receipt_super')?.value) || 0;
-                if (recSuper > 0 && dbRates['super'] > 0) {
-                    document.getElementById('amount_super').value = (recSuper * dbRates['super']).toFixed(2);
-                }
-            }
-            calculateLiveSales();
-        }
-
-        // Live Dynamic Calculator Function
-        function calculateLiveSales() {
-            // Get Closing Nozzle Readings
-            const close_dn1_val = document.getElementById('close_diesel_n1')?.value;
-            const close_dn2_val = document.getElementById('close_diesel_n2')?.value;
-            const close_dn3_val = document.getElementById('close_diesel_n3')?.value;
-            const close_dn4_val = document.getElementById('close_diesel_n4')?.value;
-            const close_sn1_val = document.getElementById('close_super_n1')?.value;
-            const close_sn2_val = document.getElementById('close_super_n2')?.value;
-
-            // Compute sales per nozzle
-            const sales_dn1 = (close_dn1_val !== "" && close_dn1_val !== undefined) ? Math.max(0, parseFloat(close_dn1_val) - (openingValues['Diesel (N1)'] || 0)) : 0;
-            const sales_dn2 = (close_dn2_val !== "" && close_dn2_val !== undefined) ? Math.max(0, parseFloat(close_dn2_val) - (openingValues['Diesel (N2)'] || 0)) : 0;
-            const sales_dn3 = (close_dn3_val !== "" && close_dn3_val !== undefined) ? Math.max(0, parseFloat(close_dn3_val) - (openingValues['Diesel (N3)'] || 0)) : 0;
-            const sales_dn4 = (close_dn4_val !== "" && close_dn4_val !== undefined) ? Math.max(0, parseFloat(close_dn4_val) - (openingValues['Diesel (N4)'] || 0)) : 0;
-
-            const sales_sn1 = (close_sn1_val !== "" && close_sn1_val !== undefined) ? Math.max(0, parseFloat(close_sn1_val) - (openingValues['Super (N1)'] || 0)) : 0;
-            const sales_sn2 = (close_sn2_val !== "" && close_sn2_val !== undefined) ? Math.max(0, parseFloat(close_sn2_val) - (openingValues['Super (N2)'] || 0)) : 0;
-
-            // Render Nozzle Sales
-            if (document.getElementById('sales_diesel_n1')) document.getElementById('sales_diesel_n1').textContent = sales_dn1.toFixed(2);
-            if (document.getElementById('sales_diesel_n2')) document.getElementById('sales_diesel_n2').textContent = sales_dn2.toFixed(2);
-            if (document.getElementById('sales_diesel_n3')) document.getElementById('sales_diesel_n3').textContent = sales_dn3.toFixed(2);
-            if (document.getElementById('sales_diesel_n4')) document.getElementById('sales_diesel_n4').textContent = sales_dn4.toFixed(2);
-            if (document.getElementById('sales_super_n1')) document.getElementById('sales_super_n1').textContent = sales_sn1.toFixed(2);
-            if (document.getElementById('sales_super_n2')) document.getElementById('sales_super_n2').textContent = sales_sn2.toFixed(2);
-
-            const total_diesel_sales = sales_dn1 + sales_dn2 + sales_dn3 + sales_dn4;
-            const total_super_sales = sales_sn1 + sales_sn2;
-
-            if (document.getElementById('stock_deduct_diesel')) document.getElementById('stock_deduct_diesel').textContent = total_diesel_sales.toFixed(2);
-            if (document.getElementById('stock_deduct_super')) document.getElementById('stock_deduct_super').textContent = total_super_sales.toFixed(2);
-
-            // Fetch Tank New Receipts
-            const rec_diesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
-            const rec_super = parseFloat(document.getElementById('receipt_super')?.value) || 0;
-
-            // Closing Stock = Opening + Receipt - Sales
-            const closing_diesel_tank = (tankOpeningStock['Diesel'] || 0) + rec_diesel - total_diesel_sales;
-            const closing_super_tank = (tankOpeningStock['Super'] || 0) + rec_super - total_super_sales;
-
-            if (document.getElementById('stock_close_diesel')) document.getElementById('stock_close_diesel').textContent = closing_diesel_tank.toFixed(2);
-            if (document.getElementById('stock_close_super')) document.getElementById('stock_close_super').textContent = closing_super_tank.toFixed(2);
-
-            // Mobil Oil calculations
-            const tbody = document.getElementById('lubricantBody');
-            if (tbody) {
-                const rows = tbody.getElementsByTagName('tr');
-                for (let i = 0; i < rows.length; i++) {
-                    const descEl = rows[i].getElementsByClassName('row-desc')[0];
-                    if (!descEl) continue;
-
-                    const itemName = descEl.textContent;
-                    const opening = lubricantOpeningStock[itemName] || 0;
-                    const receipt = parseInt(document.getElementById(`lub_rec_${i}`)?.value) || 0;
-                    const rate = parseFloat(document.getElementById(`lub_rate_${i}`)?.value) || 0;
-                    const sales = parseInt(document.getElementById(`lub_sale_${i}`)?.value) || 0;
-
-                    // Calculate Total Purchase Amount
-                    const totalAmount = receipt * rate;
-                    const amountEl = document.getElementById(`lub_amount_${i}`);
-                    if (amountEl) amountEl.textContent = totalAmount.toFixed(2);
-
-                    const closing = opening + receipt - sales;
-                    const lubCloseEl = document.getElementById(`lub_close_${i}`);
-                    if (lubCloseEl) lubCloseEl.textContent = closing;
-                }
-            }
-        }
-
-        async function saveAllReadings() {
-            const dateInput = document.getElementById('working_date')?.value || getTodayDateString();
+    async function loadCurrentStatusFromDB() {
+        try {
             const statusTag = document.getElementById('syncStatus');
-
             if (statusTag) {
-                statusTag.textContent = "⏳ Saving transactions...";
+                statusTag.textContent = "🔄 Syncing with DB...";
                 statusTag.style.color = "#b7950b";
             }
 
             const userId = localStorage.getItem('userId');
             if (!userId) {
-                alert("Session expired! Dobara login karein.");
+                alert("User session expired! Pehle login karein.");
                 window.location.href = 'login.html';
                 return;
             }
 
+            const workingDate = document.getElementById('working_date')?.value || getTodayDateString();
+
+            resetOpeningDataStructures();
+            clearClosingInputs();
+
+            // A. Fetch Last Nozzle Closing Reading (Purani Closing -> Aaj ki Opening)
+            const response = await fetch(`${API_URL}/all?userId=${userId}&date=${workingDate}`);
+            const result = await response.json();
+            
+            if (result.status === "Success" && result.data) {
+                const records = result.data;
+                updateNozzleOpening('Diesel (N1)', 'open_diesel_n1', records);
+                updateNozzleOpening('Diesel (N2)', 'open_diesel_n2', records);
+                updateNozzleOpening('Diesel (N3)', 'open_diesel_n3', records);
+                updateNozzleOpening('Diesel (N4)', 'open_diesel_n4', records);
+                updateNozzleOpening('Super (N1)', 'open_super_n1', records);
+                updateNozzleOpening('Super (N2)', 'open_super_n2', records);
+            } else {
+                updateNozzleOpeningDisplayZero();
+            }
+
+            // B. Fuel Tank stock load (Purani Closing Tank Stock -> Aaj ki Opening Tank Stock)
+            const stockResponse = await fetch(`${API_URL}/tank-stock?userId=${userId}&date=${workingDate}`);
+            const stockResult = await stockResponse.json();
+
+            if (stockResult.status === "Success" && stockResult.data) {
+                stockResult.data.forEach(row => {
+                    const normalizedType = row.fuel_type.trim().toLowerCase();
+                    if (normalizedType === 'diesel') tankOpeningStock['Diesel'] = parseFloat(row.current_stock) || 0;
+                    if (normalizedType === 'super') tankOpeningStock['Super'] = parseFloat(row.current_stock) || 0;
+                });
+            }
+
+            const openDieselEl = document.getElementById('stock_open_diesel');
+            const openSuperEl = document.getElementById('stock_open_super');
+            if (openDieselEl) openDieselEl.textContent = tankOpeningStock['Diesel'].toFixed(2);
+            if (openSuperEl) openSuperEl.textContent = tankOpeningStock['Super'].toFixed(2);
+
+            // C. Fetch Rates silently from DB
             try {
-                // 1. Fuel Tank Receipts Update (DL for Diesel, SP for Super -> Daily Sheet)
-                const recDiesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
-                const recSuper = parseFloat(document.getElementById('receipt_super')?.value) || 0;
-                
-                const amountDiesel = parseFloat(document.getElementById('amount_diesel')?.value) || 0;
-                const amountSuper = parseFloat(document.getElementById('amount_super')?.value) || 0;
-
-                const calculatedRateDiesel = recDiesel > 0 ? (amountDiesel / recDiesel) : 0;
-                const calculatedRateSuper = recSuper > 0 ? (amountSuper / recSuper) : 0;
-
-                const tankReceiptPromises = [];
-                if (recDiesel > 0) {
-                    tankReceiptPromises.push(
-                        fetch(`${API_URL}/update-receipt`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                fuel_type: 'Diesel', 
-                                code_prefix: 'DL',
-                                receipt_liters: recDiesel, 
-                                total_amount: amountDiesel,
-                                rate: calculatedRateDiesel,
-                                userId: userId, 
-                                reading_date: dateInput 
-                            })
-                        })
-                    );
-                }
-                if (recSuper > 0) {
-                    tankReceiptPromises.push(
-                        fetch(`${API_URL}/update-receipt`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                fuel_type: 'Super', 
-                                code_prefix: 'SP',
-                                receipt_liters: recSuper, 
-                                total_amount: amountSuper,
-                                rate: calculatedRateSuper,
-                                userId: userId, 
-                                reading_date: dateInput 
-                            })
-                        })
-                    );
-                }
-                await Promise.all(tankReceiptPromises);
-
-                // 2. Fuel Nozzles Update
-                const nozzleConfigs = [
-                    { name: 'Diesel (N1)', type: 'Diesel', inputId: 'close_diesel_n1' },
-                    { name: 'Diesel (N2)', type: 'Diesel', inputId: 'close_diesel_n2' },
-                    { name: 'Diesel (N3)', type: 'Diesel', inputId: 'close_diesel_n3' },
-                    { name: 'Diesel (N4)', type: 'Diesel', inputId: 'close_diesel_n4' },
-                    { name: 'Super (N1)', type: 'Super', inputId: 'close_super_n1' },
-                    { name: 'Super (N2)', type: 'Super', inputId: 'close_super_n2' }
-                ];
-
-                const nozzlePromises = [];
-                for (const target of nozzleConfigs) {
-                    const inputEl = document.getElementById(target.inputId);
-                    const rawValue = inputEl ? inputEl.value : "";
-                    if (rawValue && rawValue.trim() !== "") {
-                        nozzlePromises.push(
-                            fetch(`${API_URL}/add`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    nozzle_name: target.name,
-                                    fuel_type: target.type,
-                                    closing_reading: parseFloat(rawValue),
-                                    reading_date: dateInput,
-                                    userId: userId
-                                })
-                            })
-                        );
-                    }
-                }
-                await Promise.all(nozzlePromises);
-
-                // 3. Mobil Oil Batch Process (LUB tag transfer to Daily Sheet)
-                const lubSales = [];
-                const lubReceipts = [];
-                const tbody = document.getElementById('lubricantBody');
-
-                if (tbody) {
-                    const rows = tbody.getElementsByTagName('tr');
-                    if (rows.length > 0 && rows[0].getElementsByClassName('row-desc').length > 0) {
-                        for (let i = 0; i < rows.length; i++) {
-                            const descEl = rows[i].getElementsByClassName('row-desc')[0];
-                            if (!descEl) continue;
-
-                            const name = descEl.textContent;
-                            const recVal = parseInt(document.getElementById(`lub_rec_${i}`)?.value) || 0;
-                            const rateVal = parseFloat(document.getElementById(`lub_rate_${i}`)?.value) || 0;
-                            const saleVal = parseInt(document.getElementById(`lub_sale_${i}`)?.value) || 0;
-
-                            if (saleVal > 0) {
-                                lubSales.push({ name: name, qty: saleVal, rate: rateVal, category: 'LUB' });
-                            }
-                            if (recVal > 0) {
-                                lubReceipts.push({ name: name, qty: recVal, rate: rateVal, category: 'LUB', total_amount: recVal * rateVal });
-                            }
+                const ratesResponse = await fetch(`/api/rates?userId=${userId}`);
+                const ratesResult = await ratesResponse.json();
+                if (ratesResult.status === "Success" && ratesResult.data) {
+                    ratesResult.data.forEach(rate => {
+                        const pType = rate.product_type ? rate.product_type.toLowerCase() : '';
+                        const rateVal = parseFloat(rate.purchase_price) || parseFloat(rate.rate_per_litre) || 0;
+                        if (pType === 'diesel') {
+                            dbRates['diesel'] = rateVal;
+                        } else if (pType === 'super') {
+                            dbRates['super'] = rateVal;
                         }
-                    }
+                    });
                 }
+            } catch (e) {
+                console.log("Could not auto-fetch fuel rates", e);
+            }
 
-                if (lubSales.length > 0 || lubReceipts.length > 0) {
-                    await fetch(`${API_URL}/update-lubricants`, {
+            // D. Mobil Oil Lubricant Stock Load
+            const lubResponse = await fetch(`${API_URL}/lubricant-stock?userId=${userId}&date=${workingDate}`);
+            const lubResult = await lubResponse.json();
+
+            const tbody = document.getElementById('lubricantBody');
+            if (tbody) {
+                tbody.innerHTML = "";
+                lubricantOpeningStock = {};
+
+                if (lubResult.status === "Success" && lubResult.data && lubResult.data.length > 0) {
+                    lubResult.data.forEach((row, index) => {
+                        lubricantOpeningStock[row.item_name] = parseInt(row.current_stock) || 0;
+                        
+                        const dbRate = parseFloat(row.purchase_price || row.purchase_rate || row.rate_per_litre) || 0;
+
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="row-desc">${row.item_name}</td>
+                            <td><span id="lub_open_${index}" class="val-blue">${row.current_stock}</span></td>
+                            <td><input type="number" id="lub_rec_${index}" class="matrix-input" value="0" oninput="calculateLiveSales()"></td>
+                            <td><input type="number" step="any" id="lub_rate_${index}" class="matrix-input" value="${dbRate}" oninput="calculateLiveSales()"></td>
+                            <td><span id="lub_amount_${index}" class="val-green" style="font-weight:bold; color:#27ae60;">0.00</span></td>
+                            <td><input type="number" id="lub_sale_${index}" class="matrix-input" value="0" oninput="calculateLiveSales()"></td>
+                            <td><span id="lub_close_${index}" class="val-purple">${row.current_stock}</span></td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                } else {
+                    tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="color: #7f8c8d; padding: 15px; font-weight: bold;">Is user ke liye koi lubricant stock mojud nahi hai.</td></tr>`;
+                }
+            }
+
+            if (statusTag) {
+                statusTag.textContent = "✅ Connected to Live DB";
+                statusTag.style.color = "#27ae60";
+            }
+
+            calculateLiveSales();
+
+        } catch (error) {
+            console.error("Sync Failure:", error);
+            const statusTag = document.getElementById('syncStatus');
+            if (statusTag) {
+                statusTag.textContent = "❌ DB Connection Failed!";
+                statusTag.style.color = "#c0392b";
+            }
+        }
+    }
+
+    function clearClosingInputs() {
+        const inputs = [
+            'close_diesel_n1', 'close_diesel_n2', 'close_diesel_n3', 'close_diesel_n4',
+            'close_super_n1', 'close_super_n2', 'receipt_diesel', 'receipt_super',
+            'amount_diesel', 'amount_super'
+        ];
+        inputs.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = (id.startsWith('receipt') || id.startsWith('amount') ? "0" : "");
+        });
+    }
+
+    function updateNozzleOpening(nozzleName, elementId, records) {
+        // Backend record se pichle din ki last closing_reading lekar aaj ki OPENING banana
+        const match = records.find(r => r.nozzle_name.trim().toLowerCase() === nozzleName.trim().toLowerCase());
+        const openingVal = match ? (parseFloat(match.closing_reading) || 0) : 0;
+        openingValues[nozzleName] = openingVal;
+        
+        const el = document.getElementById(elementId);
+        if (el) el.textContent = openingVal.toFixed(2);
+    }
+
+    function updateNozzleOpeningDisplayZero() {
+        const nozzleMap = {
+            'Diesel (N1)': 'open_diesel_n1', 'Diesel (N2)': 'open_diesel_n2',
+            'Diesel (N3)': 'open_diesel_n3', 'Diesel (N4)': 'open_diesel_n4',
+            'Super (N1)': 'open_super_n1',   'Super (N2)': 'open_super_n2'
+        };
+        for (const [key, elementId] of Object.entries(nozzleMap)) {
+            openingValues[key] = 0;
+            const el = document.getElementById(elementId);
+            if (el) el.textContent = "0.00";
+        }
+    }
+
+    function onReceiptLitersChanged(type) {
+        if (type === 'diesel') {
+            const recDiesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
+            if (recDiesel > 0 && dbRates['diesel'] > 0) {
+                document.getElementById('amount_diesel').value = (recDiesel * dbRates['diesel']).toFixed(2);
+            }
+        } else if (type === 'super') {
+            const recSuper = parseFloat(document.getElementById('receipt_super')?.value) || 0;
+            if (recSuper > 0 && dbRates['super'] > 0) {
+                document.getElementById('amount_super').value = (recSuper * dbRates['super']).toFixed(2);
+            }
+        }
+        calculateLiveSales();
+    }
+
+    // Dynamic Live Meter Sales Calculation
+    function calculateLiveSales() {
+        const close_dn1_val = document.getElementById('close_diesel_n1')?.value;
+        const close_dn2_val = document.getElementById('close_diesel_n2')?.value;
+        const close_dn3_val = document.getElementById('close_diesel_n3')?.value;
+        const close_dn4_val = document.getElementById('close_diesel_n4')?.value;
+        const close_sn1_val = document.getElementById('close_super_n1')?.value;
+        const close_sn2_val = document.getElementById('close_super_n2')?.value;
+
+        // Sales = Current Day Closing Reading - Opening Reading (Previous Day Closing)
+        const sales_dn1 = (close_dn1_val !== "" && close_dn1_val !== undefined) ? Math.max(0, parseFloat(close_dn1_val) - (openingValues['Diesel (N1)'] || 0)) : 0;
+        const sales_dn2 = (close_dn2_val !== "" && close_dn2_val !== undefined) ? Math.max(0, parseFloat(close_dn2_val) - (openingValues['Diesel (N2)'] || 0)) : 0;
+        const sales_dn3 = (close_dn3_val !== "" && close_dn3_val !== undefined) ? Math.max(0, parseFloat(close_dn3_val) - (openingValues['Diesel (N3)'] || 0)) : 0;
+        const sales_dn4 = (close_dn4_val !== "" && close_dn4_val !== undefined) ? Math.max(0, parseFloat(close_dn4_val) - (openingValues['Diesel (N4)'] || 0)) : 0;
+
+        const sales_sn1 = (close_sn1_val !== "" && close_sn1_val !== undefined) ? Math.max(0, parseFloat(close_sn1_val) - (openingValues['Super (N1)'] || 0)) : 0;
+        const sales_sn2 = (close_sn2_val !== "" && close_sn2_val !== undefined) ? Math.max(0, parseFloat(close_sn2_val) - (openingValues['Super (N2)'] || 0)) : 0;
+
+        if (document.getElementById('sales_diesel_n1')) document.getElementById('sales_diesel_n1').textContent = sales_dn1.toFixed(2);
+        if (document.getElementById('sales_diesel_n2')) document.getElementById('sales_diesel_n2').textContent = sales_dn2.toFixed(2);
+        if (document.getElementById('sales_diesel_n3')) document.getElementById('sales_diesel_n3').textContent = sales_dn3.toFixed(2);
+        if (document.getElementById('sales_diesel_n4')) document.getElementById('sales_diesel_n4').textContent = sales_dn4.toFixed(2);
+        if (document.getElementById('sales_super_n1')) document.getElementById('sales_super_n1').textContent = sales_sn1.toFixed(2);
+        if (document.getElementById('sales_super_n2')) document.getElementById('sales_super_n2').textContent = sales_sn2.toFixed(2);
+
+        const total_diesel_sales = sales_dn1 + sales_dn2 + sales_dn3 + sales_dn4;
+        const total_super_sales = sales_sn1 + sales_sn2;
+
+        if (document.getElementById('stock_deduct_diesel')) document.getElementById('stock_deduct_diesel').textContent = total_diesel_sales.toFixed(2);
+        if (document.getElementById('stock_deduct_super')) document.getElementById('stock_deduct_super').textContent = total_super_sales.toFixed(2);
+
+        const rec_diesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
+        const rec_super = parseFloat(document.getElementById('receipt_super')?.value) || 0;
+
+        // Closing Tank Stock = Opening Stock + New Receipt - Sales
+        const closing_diesel_tank = (tankOpeningStock['Diesel'] || 0) + rec_diesel - total_diesel_sales;
+        const closing_super_tank = (tankOpeningStock['Super'] || 0) + rec_super - total_super_sales;
+
+        if (document.getElementById('stock_close_diesel')) document.getElementById('stock_close_diesel').textContent = closing_diesel_tank.toFixed(2);
+        if (document.getElementById('stock_close_super')) document.getElementById('stock_close_super').textContent = closing_super_tank.toFixed(2);
+
+        // Lubricants Calculations
+        const tbody = document.getElementById('lubricantBody');
+        if (tbody) {
+            const rows = tbody.getElementsByTagName('tr');
+            for (let i = 0; i < rows.length; i++) {
+                const descEl = rows[i].getElementsByClassName('row-desc')[0];
+                if (!descEl) continue;
+
+                const itemName = descEl.textContent;
+                const opening = lubricantOpeningStock[itemName] || 0;
+                const receipt = parseInt(document.getElementById(`lub_rec_${i}`)?.value) || 0;
+                const rate = parseFloat(document.getElementById(`lub_rate_${i}`)?.value) || 0;
+                const sales = parseInt(document.getElementById(`lub_sale_${i}`)?.value) || 0;
+
+                const totalAmount = receipt * rate;
+                const amountEl = document.getElementById(`lub_amount_${i}`);
+                if (amountEl) amountEl.textContent = totalAmount.toFixed(2);
+
+                const closing = opening + receipt - sales;
+                const lubCloseEl = document.getElementById(`lub_close_${i}`);
+                if (lubCloseEl) lubCloseEl.textContent = closing;
+            }
+        }
+    }
+
+    async function saveAllReadings() {
+        const dateInputEl = document.getElementById('working_date');
+        const dateInput = dateInputEl?.value || getTodayDateString();
+        const statusTag = document.getElementById('syncStatus');
+
+        if (statusTag) {
+            statusTag.textContent = "⏳ Saving transactions...";
+            statusTag.style.color = "#b7950b";
+        }
+
+        const userId = localStorage.getItem('userId');
+        if (!userId) {
+            alert("Session expired! Dobara login karein.");
+            window.location.href = 'login.html';
+            return;
+        }
+
+        try {
+            // 1. Save Tank Receipts
+            const recDiesel = parseFloat(document.getElementById('receipt_diesel')?.value) || 0;
+            const recSuper = parseFloat(document.getElementById('receipt_super')?.value) || 0;
+            
+            const amountDiesel = parseFloat(document.getElementById('amount_diesel')?.value) || 0;
+            const amountSuper = parseFloat(document.getElementById('amount_super')?.value) || 0;
+
+            const calculatedRateDiesel = recDiesel > 0 ? (amountDiesel / recDiesel) : 0;
+            const calculatedRateSuper = recSuper > 0 ? (amountSuper / recSuper) : 0;
+
+            const tankReceiptPromises = [];
+            if (recDiesel > 0) {
+                tankReceiptPromises.push(
+                    fetch(`${API_URL}/update-receipt`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
-                            lubricant_sales: lubSales, 
-                            lubricant_receipts: lubReceipts, 
-                            category: 'LUB',
+                            fuel_type: 'Diesel', 
+                            code_prefix: 'DL',
+                            receipt_liters: recDiesel, 
+                            total_amount: amountDiesel,
+                            rate: calculatedRateDiesel,
                             userId: userId, 
                             reading_date: dateInput 
                         })
-                    });
+                    })
+                );
+            }
+            if (recSuper > 0) {
+                tankReceiptPromises.push(
+                    fetch(`${API_URL}/update-receipt`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            fuel_type: 'Super', 
+                            code_prefix: 'SP',
+                            receipt_liters: recSuper, 
+                            total_amount: amountSuper,
+                            rate: calculatedRateSuper,
+                            userId: userId, 
+                            reading_date: dateInput 
+                        })
+                    })
+                );
+            }
+            await Promise.all(tankReceiptPromises);
+
+            // 2. Save Nozzle Closing (Is din ki closing next day ki opening banegi)
+            const nozzleConfigs = [
+                { name: 'Diesel (N1)', type: 'Diesel', inputId: 'close_diesel_n1' },
+                { name: 'Diesel (N2)', type: 'Diesel', inputId: 'close_diesel_n2' },
+                { name: 'Diesel (N3)', type: 'Diesel', inputId: 'close_diesel_n3' },
+                { name: 'Diesel (N4)', type: 'Diesel', inputId: 'close_diesel_n4' },
+                { name: 'Super (N1)', type: 'Super', inputId: 'close_super_n1' },
+                { name: 'Super (N2)', type: 'Super', inputId: 'close_super_n2' }
+            ];
+
+            const nozzlePromises = [];
+            for (const target of nozzleConfigs) {
+                const inputEl = document.getElementById(target.inputId);
+                const rawValue = inputEl ? inputEl.value : "";
+                if (rawValue && rawValue.trim() !== "") {
+                    nozzlePromises.push(
+                        fetch(`${API_URL}/add`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                nozzle_name: target.name,
+                                fuel_type: target.type,
+                                closing_reading: parseFloat(rawValue),
+                                reading_date: dateInput,
+                                userId: userId
+                            })
+                        })
+                    );
                 }
+            }
+            await Promise.all(nozzlePromises);
 
-                // Reset inputs
-                nozzleConfigs.forEach(t => {
-                    const el = document.getElementById(t.inputId);
-                    if (el) el.value = "";
+            // 3. Lubricants Batch Update
+            const lubSales = [];
+            const lubReceipts = [];
+            const tbody = document.getElementById('lubricantBody');
+
+            if (tbody) {
+                const rows = tbody.getElementsByTagName('tr');
+                if (rows.length > 0 && rows[0].getElementsByClassName('row-desc').length > 0) {
+                    for (let i = 0; i < rows.length; i++) {
+                        const descEl = rows[i].getElementsByClassName('row-desc')[0];
+                        if (!descEl) continue;
+
+                        const name = descEl.textContent;
+                        const recVal = parseInt(document.getElementById(`lub_rec_${i}`)?.value) || 0;
+                        const rateVal = parseFloat(document.getElementById(`lub_rate_${i}`)?.value) || 0;
+                        const saleVal = parseInt(document.getElementById(`lub_sale_${i}`)?.value) || 0;
+
+                        if (saleVal > 0) {
+                            lubSales.push({ name: name, qty: saleVal, rate: rateVal, category: 'LUB' });
+                        }
+                        if (recVal > 0) {
+                            lubReceipts.push({ name: name, qty: recVal, rate: rateVal, category: 'LUB', total_amount: recVal * rateVal });
+                        }
+                    }
+                }
+            }
+
+            if (lubSales.length > 0 || lubReceipts.length > 0) {
+                await fetch(`${API_URL}/update-lubricants`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        lubricant_sales: lubSales, 
+                        lubricant_receipts: lubReceipts, 
+                        category: 'LUB',
+                        userId: userId, 
+                        reading_date: dateInput 
+                    })
                 });
-
-                alert("🎉 Shift Closed! Fuel metrics aur Mobil Oil Inventory sab data automatic safe synchronised update ho gaya hai.");
-
-                await loadCurrentStatusFromDB();
-
-            } catch (err) {
-                console.error("Save process broke down:", err);
-                alert("System error or connection field array layout mismatch.");
-                await loadCurrentStatusFromDB();
             }
+
+            alert("🎉 Shift Closed! Purani Closing aglay din ki Opening ban gayi hai.");
+
+            // Safely calculate and set next day string
+            const nextDayString = getNextDayString(dateInput);
+
+            if (dateInputEl) {
+                dateInputEl.value = nextDayString;
+            }
+
+            // Load next day data from DB
+            await loadCurrentStatusFromDB();
+
+        } catch (err) {
+            console.error("Save process broke down:", err);
+            alert("System error saving reading data.");
+            await loadCurrentStatusFromDB();
         }
+    }
 
-        window.addEventListener('DOMContentLoaded', () => {
-            const dateInput = document.getElementById('working_date');
-            if (dateInput) {
-                dateInput.value = getTodayDateString();
-                dateInput.addEventListener('change', loadCurrentStatusFromDB);
-            }
-            loadCurrentStatusFromDB();
-        });
+    window.addEventListener('DOMContentLoaded', () => {
+        const dateInput = document.getElementById('working_date');
+        if (dateInput) {
+            dateInput.value = getTodayDateString();
+            dateInput.addEventListener('change', loadCurrentStatusFromDB);
+        }
+        loadCurrentStatusFromDB();
+    });
 
-        document.getElementById('logoutBtn').addEventListener('click', () => {
-            localStorage.removeItem('userId');
-            localStorage.removeItem('username');
-            alert("Aap successfully logout ho chuke hain!");
-            window.location.href = 'login.html';
-        });
-    </script>
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+        localStorage.removeItem('userId');
+        localStorage.removeItem('username');
+        alert("Aap successfully logout ho chuke hain!");
+        window.location.href = 'login.html';
+    });
+</script>
 </body>
 
 </html>

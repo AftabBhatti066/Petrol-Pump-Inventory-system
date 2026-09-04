@@ -75,7 +75,7 @@ exports.getRates = async (req, res) => {
     }
 };
 
-// 1. GET NOZZLE READINGS FOR A SPECIFIC DATE
+// 1. GET NOZZLE READINGS FOR A SPECIFIC DATE (FIXED)
 exports.getAllReadings = async (req, res) => {
     try {
         const { userId, date } = req.query;
@@ -87,6 +87,7 @@ exports.getAllReadings = async (req, res) => {
 
         const targetDate = formatDate(date);
 
+        // Fetch readings saved on the target date
         const query = `
             SELECT 
                 mr.id,
@@ -112,17 +113,19 @@ exports.getAllReadings = async (req, res) => {
 
         let result = await db.query(query, [parsedUserId, targetDate]);
 
+        // If no records exist for targetDate, fetch the latest closing reading for each nozzle prior to targetDate
         if (result.rows.length === 0) {
             const prevQuery = `
-                SELECT m1.nozzle_name, m1.fuel_type, m1.closing_reading AS prev_closing, 0 AS closing_reading, 0 AS liters_sold
-                FROM meter_readings m1
-                INNER JOIN (
-                    SELECT nozzle_name, MAX(id) as max_id 
-                    FROM meter_readings 
-                    WHERE user_id = $1::integer AND reading_date < $2::date
-                    GROUP BY nozzle_name
-                ) m2 ON m1.id = m2.max_id
-                WHERE m1.user_id = $1::integer
+                SELECT DISTINCT ON (nozzle_name)
+                    nozzle_name,
+                    fuel_type,
+                    closing_reading AS closing_reading,
+                    closing_reading AS opening_reading,
+                    0 AS liters_sold,
+                    reading_date
+                FROM meter_readings
+                WHERE user_id = $1::integer AND reading_date < $2::date
+                ORDER BY nozzle_name, reading_date DESC, id DESC
             `;
             const prevResult = await db.query(prevQuery, [parsedUserId, targetDate]);
             return res.json({ status: "Success", data: prevResult.rows });
@@ -222,7 +225,7 @@ exports.getLubricantStock = async (req, res) => {
                             CAST(
                                 NULLIF(
                                     REGEXP_REPLACE(
-                                        SUBSTRING(description FROM '([0-9]+\\s*' || ls.item_name || ')'), 
+                                        SUBSTRING(description FROM '([0-9]+\\s*' || REPLACE(REPLACE(ls.item_name, '.', '\\.'), '(', '\\(') || ')'), 
                                         '[^0-9]', '', 'g'
                                     ), ''
                                 ) AS INTEGER
@@ -240,7 +243,7 @@ exports.getLubricantStock = async (req, res) => {
                             CAST(
                                 NULLIF(
                                     REGEXP_REPLACE(
-                                        SUBSTRING(description FROM '([0-9]+\\s*' || ls.item_name || ')'), 
+                                        SUBSTRING(description FROM '([0-9]+\\s*' || REPLACE(REPLACE(ls.item_name, '.', '\\.'), '(', '\\(') || ')'), 
                                         '[^0-9]', '', 'g'
                                     ), ''
                                 ) AS INTEGER
@@ -290,7 +293,7 @@ exports.getLubricantStock = async (req, res) => {
     }
 };
 
-// 4. ADD / UPDATE METER READING
+// 4. ADD / UPDATE METER READING (FIXED)
 exports.addReading = async (req, res) => {
     let client;
     try {
@@ -309,7 +312,7 @@ exports.addReading = async (req, res) => {
         const closingVal = parseFloat(closing_reading) || 0;
         const typeNormalized = (fuel_type || '').trim().toLowerCase();
 
-        // 1. Get previous reading
+        // 1. Get previous reading strictly before the reading date
         const lastResult = await client.query(
             `SELECT closing_reading FROM meter_readings 
              WHERE nozzle_name = $1 AND user_id = $2::integer AND reading_date < $3::date 
@@ -320,15 +323,16 @@ exports.addReading = async (req, res) => {
         const openingVal = lastResult.rows.length > 0 ? parseFloat(lastResult.rows[0].closing_reading) || 0 : 0.00;
         const litersSold = Math.max(0, closingVal - openingVal);
 
-        // 2. Upsert meter readings
+        // 2. Upsert meter readings (ensuring opening_reading updates properly)
         await client.query(`
             INSERT INTO meter_readings (nozzle_name, fuel_type, opening_reading, closing_reading, liters_sold, reading_date, user_id)
             VALUES ($1, $2, $3, $4, $5, $6::date, $7::integer)
             ON CONFLICT (user_id, nozzle_name, reading_date) 
             DO UPDATE SET 
                 fuel_type = EXCLUDED.fuel_type,
+                opening_reading = EXCLUDED.opening_reading,
                 closing_reading = EXCLUDED.closing_reading,
-                liters_sold = GREATEST(0, EXCLUDED.closing_reading - meter_readings.opening_reading)
+                liters_sold = GREATEST(0, EXCLUDED.closing_reading - EXCLUDED.opening_reading)
         `, [nozzle_name, fuel_type, openingVal, closingVal, litersSold, formattedDate, parsedUserId]);
 
         // 3. Ensure stock record exists
