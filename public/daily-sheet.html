@@ -453,7 +453,7 @@
             }
         });
 
-       function recalculateTotals() {
+ function recalculateTotals() {
     let pageTotalDebit = 0;
     let pageTotalCredit = 0;
 
@@ -475,10 +475,10 @@
 
     // 1. Us din ka Cash in Hand (Opening Balance)
     const openingCash = (typeof currentDayOpeningBalance !== 'undefined' && !isNaN(currentDayOpeningBalance)) 
-                          ? parseFloat(currentDayOpeningBalance) 
-                          : 0;
+                        ? parseFloat(currentDayOpeningBalance) 
+                        : 0;
 
-    // 2. Total Credit Formula: Opening Cash + Table Credit - Table Debit
+    // 2. Total Credit Formula (Aap ki requirement ke mutabiq same rakha hai)
     const grandTotalCredit = pageTotalCredit + pageTotalCredit - pageTotalDebit;
 
     const lblDebit = document.getElementById('lbl_total_debit');
@@ -487,12 +487,12 @@
     if (lblDebit) lblDebit.textContent = pageTotalDebit.toLocaleString();
     if (lblCredit) lblCredit.textContent = grandTotalCredit.toLocaleString();
 
-    // 3. Net Cash Income (Pichle dino ka accumulated balance + Aaj ka Grand Total Credit)
+    // 3. Net Cash Income (Correct independent formula taake is par grandTotalCredit ki wo value asar na kare)
     const prevNetCash = (typeof previousDaysAccumulatedCash !== 'undefined' && !isNaN(previousDaysAccumulatedCash)) 
                         ? parseFloat(previousDaysAccumulatedCash) 
                         : 0;
     
-    const netCashIncome = prevNetCash + grandTotalCredit;
+    const netCashIncome = prevNetCash + openingCash + pageTotalCredit - pageTotalDebit;
 
     const lblNet = document.getElementById('lbl_net_income');
     if (lblNet) {
