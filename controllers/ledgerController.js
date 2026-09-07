@@ -204,9 +204,9 @@ exports.getVehicleLedger = async (req, res) => {
                 'Daily Sheet' AS product,
                 0 AS litres,
                 0 AS rate_pkr,
-                CAST(COALESCE(rs.debit_udhaar, 0) AS DECIMAL(10,2)) AS debit_udhaar,
-                CAST(COALESCE(rs.credit_vasooli, 0) AS DECIMAL(10,2)) AS credit_vasooli,
-                CAST((COALESCE(rs.debit_udhaar, 0) - COALESCE(rs.credit_vasooli, 0)) AS DECIMAL(10,2)) AS net_total,
+                CAST(COALESCE(rs.debit_udhaar, 0) AS DECIMAL(15,2)) AS debit_udhaar,
+                CAST(COALESCE(rs.credit_vasooli, 0) AS DECIMAL(15,2)) AS credit_vasooli,
+                CAST((COALESCE(rs.debit_udhaar, 0) - COALESCE(rs.credit_vasooli, 0)) AS DECIMAL(15,2)) AS net_total,
                 rs.sheet_date AS entry_date,
                 'CASH' AS payment_type,
                 rs.description AS description,
@@ -374,8 +374,8 @@ exports.getTrialBalance = async (req, res) => {
                 -- Stream 1: Unique Customer Names with direct Daily Sheets aggregation
                 SELECT 
                     TRIM(dc.customer_name) AS party_name,
-                    CAST(COALESCE(ds.debit_udhaar, 0) AS DECIMAL(10,2)) AS debit_udhaar,
-                    CAST(COALESCE(ds.credit_vasooli, 0) AS DECIMAL(10,2)) AS credit_vasooli
+                    CAST(COALESCE(ds.debit_udhaar, 0) AS DECIMAL(15,2)) AS debit_udhaar,
+                    CAST(COALESCE(ds.credit_vasooli, 0) AS DECIMAL(15,2)) AS credit_vasooli
                 FROM daily_sheets ds
                 INNER JOIN (
                     SELECT DISTINCT LOWER(TRIM(search_id)) AS search_id, customer_name, user_id 
@@ -390,8 +390,8 @@ exports.getTrialBalance = async (req, res) => {
                 -- Stream 2: Daily Sheets Entries whose search_id is NOT in daily_customers
                 SELECT 
                     CONCAT('Customer (', TRIM(ds.search_id), ')') AS party_name,
-                    CAST(COALESCE(ds.debit_udhaar, 0) AS DECIMAL(10,2)) AS debit_udhaar,
-                    CAST(COALESCE(ds.credit_vasooli, 0) AS DECIMAL(10,2)) AS credit_vasooli
+                    CAST(COALESCE(ds.debit_udhaar, 0) AS DECIMAL(15,2)) AS debit_udhaar,
+                    CAST(COALESCE(ds.credit_vasooli, 0) AS DECIMAL(15,2)) AS credit_vasooli
                 FROM daily_sheets ds
                 WHERE ds.user_id = ${startDate && endDate ? "$5" : "$3"}
                   ${startDate && endDate ? "AND ds.sheet_date::date BETWEEN $6::date AND $7::date" : ""}
@@ -405,8 +405,8 @@ exports.getTrialBalance = async (req, res) => {
                 -- Stream 3: Master Chart of Accounts
                 SELECT 
                     account_name AS party_name,
-                    CASE WHEN balance_type = 'DEBIT' THEN CAST(opening_balance AS DECIMAL(10,2)) ELSE 0.00 END AS debit_udhaar,
-                    CASE WHEN balance_type = 'CREDIT' THEN CAST(opening_balance AS DECIMAL(10,2)) ELSE 0.00 END AS credit_vasooli
+                    CASE WHEN balance_type = 'DEBIT' THEN CAST(opening_balance AS DECIMAL(15,2)) ELSE 0.00 END AS debit_udhaar,
+                    CASE WHEN balance_type = 'CREDIT' THEN CAST(opening_balance AS DECIMAL(15,2)) ELSE 0.00 END AS credit_vasooli
                 FROM chart_of_accounts
                 WHERE user_id = ${startDate && endDate ? "$9" : "$5"}
 

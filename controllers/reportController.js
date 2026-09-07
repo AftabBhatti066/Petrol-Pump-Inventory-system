@@ -65,7 +65,7 @@ exports.getTrialBalance = async (req, res) => {
     }
 };
 
-// 3. Get Dispenser Profit Report (SORTING UPDATED: Oldest to Newest Date Order)
+// 3. Get Dispenser Profit Report (FIXED: Uses req.query properly for dates)
 exports.getDispenserProfitReport = async (req, res) => {
     try {
         const { start_date, end_date, startDate, endDate, userId } = req.query;
@@ -90,7 +90,7 @@ exports.getDispenserProfitReport = async (req, res) => {
                 (combined.liters_sold * COALESCE(fr.rate_per_litre, 0)) AS total_revenue_pkr,
                 ((combined.liters_sold * COALESCE(fr.rate_per_litre, 0)) - (combined.liters_sold * COALESCE(fr.purchase_price, 0))) AS gross_profit_pkr
             FROM (
-                -- Meter Readings (Super & Diesel)
+                -- Meter Readings (Super & Diesel) - Uses reading_date entered by user
                 SELECT 
                     mr.id,
                     mr.reading_date::date AS reading_date,
@@ -103,16 +103,16 @@ exports.getDispenserProfitReport = async (req, res) => {
 
                 UNION ALL
 
-                -- Lubricant Stocks
+                -- Lubricant Shift Sales
                 SELECT 
-                    ls.id,
-                    COALESCE(ls.updated_at::date, ls.created_at::date, CURRENT_DATE) AS reading_date,
+                    lss.id,
+                    lss.sale_date AS reading_date,
                     'Mobiloil Counter' AS nozzle_name,
-                    COALESCE(ls.item_name, 'Mobiloil') AS fuel_type,
-                    COALESCE(ls.shift_sales_deduct, 0) AS liters_sold,
-                    ls.user_id
-                FROM lubricant_stocks ls
-                WHERE COALESCE(ls.shift_sales_deduct, 0) > 0
+                    COALESCE(lss.item_name, 'Mobiloil') AS fuel_type,
+                    COALESCE(lss.liters_sold, 0) AS liters_sold,
+                    lss.user_id
+                FROM lubricant_shift_sales lss
+                WHERE COALESCE(lss.liters_sold, 0) > 0
             ) combined
             LEFT JOIN LATERAL (
                 SELECT rate_per_litre, purchase_price 
@@ -135,7 +135,6 @@ exports.getDispenserProfitReport = async (req, res) => {
             detailsQuery += ` AND (combined.user_id = $${detailsParams.length} OR combined.user_id IS NULL)`;
         }
 
-        // Sorting: ASC order for chronological date sequence (e.g., 2 -> 3 -> 4)
         detailsQuery += ` ORDER BY combined.reading_date ASC, combined.id ASC`;
 
         const { rows: details } = await db.query(detailsQuery, detailsParams);
@@ -193,7 +192,7 @@ exports.getDispenserProfitReport = async (req, res) => {
     }
 };
 
-// 4. Get Daily Summary Report
+// 4. Get Daily Summary Report (FIXED: Uses req.query properly)
 exports.getDailySummary = async (req, res) => {
     try {
         const { date, userId } = req.query;
@@ -248,14 +247,14 @@ exports.postMonthEndProfit = async (req, res) => {
 
                 UNION ALL
 
-                -- Lubricant / Mobiloil Stocks
+                -- Lubricant Shift Sales
                 SELECT 
-                    TRIM(ls.item_name) AS fuel_type,
-                    COALESCE(ls.shift_sales_deduct, 0) AS liters_sold,
-                    ls.user_id,
-                    COALESCE(ls.updated_at::date, ls.created_at::date, CURRENT_DATE) AS transaction_date
-                FROM lubricant_stocks ls
-                WHERE COALESCE(ls.shift_sales_deduct, 0) > 0
+                    TRIM(lss.item_name) AS fuel_type,
+                    COALESCE(lss.liters_sold, 0) AS liters_sold,
+                    lss.user_id,
+                    lss.sale_date AS transaction_date
+                FROM lubricant_shift_sales lss
+                WHERE COALESCE(lss.liters_sold, 0) > 0
             ) combined
             LEFT JOIN LATERAL (
                 SELECT rate_per_litre, purchase_price 
@@ -298,7 +297,7 @@ exports.postMonthEndProfit = async (req, res) => {
             } else if (rawItemName.includes('super') || rawItemName.includes('petrol') || rawItemName.includes('sp') || rawItemName.includes('pm')) {
                 searchId = 'sp';
             } else {
-                searchId = 'mb';
+                searchId = 'lub';
             }
 
             if (searchId) {

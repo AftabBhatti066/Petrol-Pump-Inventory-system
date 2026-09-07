@@ -7,9 +7,12 @@ const DEFAULT_LUBRICANTS = [
     'Deo 8000 4Ltrs', 'Deo 8000 10Ltrs'
 ];
 
-// Helper Function: Date YYYY-MM-DD Format
+// Helper Function: Date YYYY-MM-DD Format (With Detailed Fallback & Logs)
 const formatDate = (dateInput) => {
-    if (!dateInput) {
+    console.log("formatDate input received:", dateInput, "Type:", typeof dateInput);
+
+    if (!dateInput || dateInput === "" || dateInput === "null" || dateInput === "undefined") {
+        console.log("⚠️ No date provided or empty! Falling back to current system date.");
         const today = new Date();
         const year = today.getFullYear();
         const month = String(today.getMonth() + 1).padStart(2, '0');
@@ -20,15 +23,25 @@ const formatDate = (dateInput) => {
     if (typeof dateInput === 'string') {
         const cleanDate = dateInput.split('T')[0];
         if (/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+            console.log("✅ Valid string date parsed:", cleanDate);
             return cleanDate;
         }
     }
 
     const d = new Date(dateInput);
-    const year = d.getUTCFullYear();
-    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(d.getUTCDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    if (!isNaN(d.getTime())) {
+        const year = d.getUTCFullYear();
+        const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(d.getUTCDate()).padStart(2, '0');
+        const parsedResult = `${year}-${month}-${day}`;
+        console.log("✅ Parsed date via Date object:", parsedResult);
+        return parsedResult;
+    }
+
+    const today = new Date();
+    const fallback = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    console.log("⚠️ Date parsing failed, using fallback current date:", fallback);
+    return fallback;
 };
 
 // Helper Function: Parse User ID safely into Integer
@@ -75,7 +88,7 @@ exports.getRates = async (req, res) => {
     }
 };
 
-// 1. GET NOZZLE READINGS FOR A SPECIFIC DATE (FIXED)
+// 1. GET NOZZLE READINGS FOR A SPECIFIC DATE
 exports.getAllReadings = async (req, res) => {
     try {
         const { userId, date } = req.query;
@@ -87,7 +100,6 @@ exports.getAllReadings = async (req, res) => {
 
         const targetDate = formatDate(date);
 
-        // Fetch readings saved on the target date
         const query = `
             SELECT 
                 mr.id,
@@ -113,7 +125,6 @@ exports.getAllReadings = async (req, res) => {
 
         let result = await db.query(query, [parsedUserId, targetDate]);
 
-        // If no records exist for targetDate, fetch the latest closing reading for each nozzle prior to targetDate
         if (result.rows.length === 0) {
             const prevQuery = `
                 SELECT DISTINCT ON (nozzle_name)
@@ -173,8 +184,8 @@ exports.getTankStock = async (req, res) => {
                         WHERE user_id = $1::integer 
                           AND sheet_date > $2::date
                           AND (
-                              (LOWER(TRIM(fs.fuel_type)) LIKE '%diesel%' AND LOWER(TRIM(search_id)) = 'dl')
-                              OR (LOWER(TRIM(fs.fuel_type)) LIKE '%super%' AND LOWER(TRIM(search_id)) = 'sp')
+                            (LOWER(TRIM(fs.fuel_type)) LIKE '%diesel%' AND LOWER(TRIM(search_id)) = 'dl')
+                            OR (LOWER(TRIM(fs.fuel_type)) LIKE '%super%' AND LOWER(TRIM(search_id)) = 'sp')
                           )
                     ), 0)
                 ) AS current_stock
@@ -293,26 +304,31 @@ exports.getLubricantStock = async (req, res) => {
     }
 };
 
-// 4. ADD / UPDATE METER READING (FIXED)
+// 4. ADD / UPDATE METER READING (Updated with Daily Sheet date support)
 exports.addReading = async (req, res) => {
     let client;
     try {
+        console.log("=== ADD READING REQUEST RECEIVED ===");
+        console.log("REQUEST BODY:", req.body);
+
         client = await db.getClient ? await db.getClient() : await db.connect();
         await client.query('BEGIN');
 
-        const { nozzle_name, fuel_type, closing_reading, reading_date, userId } = req.body;
+        const { nozzle_name, fuel_type, closing_reading, reading_date, date, selectedDate, readingDate, userId } = req.body;
         const parsedUserId = parseUserId(userId);
+        
+        const rawDate = reading_date || date || selectedDate || readingDate;
+        const formattedDate = formatDate(rawDate);
 
-        if (!nozzle_name || closing_reading === undefined || !reading_date || !parsedUserId) {
+        console.log("Extracted raw reading date:", rawDate, "=> Formatted Target Date:", formattedDate);
+
+        if (!nozzle_name || closing_reading === undefined || !parsedUserId) {
             await client.query('ROLLBACK');
             return res.status(400).json({ status: "Error", message: "Missing required fields or invalid User ID!" });
         }
 
-        const formattedDate = formatDate(reading_date);
         const closingVal = parseFloat(closing_reading) || 0;
-        const typeNormalized = (fuel_type || '').trim().toLowerCase();
 
-        // 1. Get previous reading strictly before the reading date
         const lastResult = await client.query(
             `SELECT closing_reading FROM meter_readings 
              WHERE nozzle_name = $1 AND user_id = $2::integer AND reading_date < $3::date 
@@ -323,7 +339,6 @@ exports.addReading = async (req, res) => {
         const openingVal = lastResult.rows.length > 0 ? parseFloat(lastResult.rows[0].closing_reading) || 0 : 0.00;
         const litersSold = Math.max(0, closingVal - openingVal);
 
-        // 2. Upsert meter readings (ensuring opening_reading updates properly)
         await client.query(`
             INSERT INTO meter_readings (nozzle_name, fuel_type, opening_reading, closing_reading, liters_sold, reading_date, user_id)
             VALUES ($1, $2, $3, $4, $5, $6::date, $7::integer)
@@ -335,54 +350,14 @@ exports.addReading = async (req, res) => {
                 liters_sold = GREATEST(0, EXCLUDED.closing_reading - EXCLUDED.opening_reading)
         `, [nozzle_name, fuel_type, openingVal, closingVal, litersSold, formattedDate, parsedUserId]);
 
-        // 3. Ensure stock record exists
         await client.query(`
             INSERT INTO fuel_stocks (fuel_type, current_stock, user_id) 
             VALUES ($1, 0.00, $2::integer)
             ON CONFLICT (fuel_type, user_id) DO NOTHING
         `, [fuel_type, parsedUserId]);
 
-        // 4. Log into daily_sheets if liters sold > 0
-        if (litersSold > 0) {
-            let rate = 0;
-            const rateResult = await client.query(
-                `SELECT rate_per_litre FROM fuel_rates 
-                 WHERE (LOWER(TRIM(product_type)) LIKE LOWER($1) 
-                    OR LOWER(TRIM(product_name)) LIKE LOWER($1) 
-                    OR LOWER(TRIM(specific_category)) LIKE LOWER($1))
-                   AND (user_id = $2::integer OR user_id IS NULL)
-                 ORDER BY rate_date DESC, id DESC LIMIT 1`,
-                [`%${typeNormalized}%`, parsedUserId]
-            );
-
-            if (rateResult.rows.length > 0) {
-                rate = parseFloat(rateResult.rows[0].rate_per_litre || 0);
-            }
-
-            const calculatedTotal = litersSold * rate;
-            const searchId = typeNormalized.includes('diesel') ? 'dl' : 'sp';
-            const defaultCustomerName = typeNormalized.includes('diesel') ? 'Diesel Khata' : 'Super Petrol Khata';
-
-            await ensureMasterCustomerExists(client, searchId, defaultCustomerName, parsedUserId);
-
-            const description = `${nozzle_name} (${fuel_type}) Reading (${litersSold} Ltrs @ ${rate.toFixed(2)})`;
-
-            await client.query(`
-                INSERT INTO daily_sheets (search_id, debit_udhaar, credit_vasooli, description, total_balance, sheet_date, user_id)
-                VALUES ($1, $2, $3, $4, $5, $6::date, $7::integer)
-            `, [
-                searchId,
-                calculatedTotal,
-                0.00,
-                description,
-                -calculatedTotal,
-                formattedDate,
-                parsedUserId
-            ]);
-        }
-
         await client.query('COMMIT');
-        res.json({ status: "Success", message: "Reading logged, stock, and Daily Sheet updated successfully!" });
+        res.json({ status: "Success", message: "Meter reading updated successfully for date: " + formattedDate });
     } catch (error) {
         if (client) await client.query('ROLLBACK');
         console.error("Add Reading Error:", error);
@@ -396,11 +371,20 @@ exports.addReading = async (req, res) => {
 exports.updateReceipt = async (req, res) => {
     let client;
     try {
+        console.log("=== UPDATE RECEIPT REQUEST RECEIVED ===");
+        console.log("REQUEST BODY:", req.body);
+
         client = await db.getClient ? await db.getClient() : await db.connect();
         await client.query('BEGIN');
 
-        const { fuel_type, receipt_liters, total_amount, rate_per_liter, receipt_date, userId } = req.body;
+        const { fuel_type, receipt_liters, total_amount, rate_per_liter, receipt_date, date, selectedDate, receiptDate, reading_date, userId } = req.body;
         const parsedUserId = parseUserId(userId);
+
+        // Added reading_date to successfully capture the date from the payload
+        const rawDate = receipt_date || date || selectedDate || receiptDate || reading_date;
+        const entryDate = formatDate(rawDate);
+
+        console.log("Extracted raw receipt date:", rawDate, "=> Final Entry Date:", entryDate);
 
         if (!fuel_type || !receipt_liters || !parsedUserId) {
             await client.query('ROLLBACK');
@@ -408,7 +392,6 @@ exports.updateReceipt = async (req, res) => {
         }
 
         const liters = parseFloat(receipt_liters) || 0;
-        const entryDate = formatDate(receipt_date);
         const typeNormalized = fuel_type.trim().toLowerCase();
 
         const searchId = typeNormalized.includes('diesel') ? 'dl' : 'sp';
@@ -432,7 +415,7 @@ exports.updateReceipt = async (req, res) => {
                  WHERE (LOWER(TRIM(product_type)) LIKE LOWER($1) 
                     OR LOWER(TRIM(product_name)) LIKE LOWER($1) 
                     OR LOWER(TRIM(specific_category)) LIKE LOWER($1))
-                   AND (user_id = $2::integer OR user_id IS NULL)
+                    AND (user_id = $2::integer OR user_id IS NULL)
                  ORDER BY rate_date DESC, created_at DESC, id DESC LIMIT 1`,
                 [`%${fuelSearchType.toLowerCase()}%`, parsedUserId]
             );
@@ -486,7 +469,7 @@ exports.updateReceipt = async (req, res) => {
             0.00,
             descriptionText,
             -calculatedTotal,
-            entryDate,
+            entryDate, 
             parsedUserId
         ]);
 
@@ -494,8 +477,8 @@ exports.updateReceipt = async (req, res) => {
 
         res.json({ 
             status: "Success", 
-            message: `Stock added (${liters} Ltrs) under '${searchId}'! Rs. ${calculatedTotal} added to Daily Sheet.`,
-            data: { liters, rate: formattedRate, totalAmount: calculatedTotal, search_id: searchId }
+            message: `Stock added (${liters} Ltrs) under '${searchId}' for date ${entryDate}!`,
+            data: { liters, rate: formattedRate, totalAmount: calculatedTotal, search_id: searchId, date: entryDate }
         });
     } catch (error) {
         if (client) await client.query('ROLLBACK');
@@ -510,18 +493,25 @@ exports.updateReceipt = async (req, res) => {
 exports.updateLubricants = async (req, res) => {
     let client;
     try {
+        console.log("=== UPDATE LUBRICANTS REQUEST RECEIVED ===");
+        console.log("REQUEST BODY:", req.body);
+
         client = await db.getClient ? await db.getClient() : await db.connect();
         await client.query('BEGIN');
 
-        const { lubricant_sales, lubricant_receipts, receipt_date, userId } = req.body;
+        const { lubricant_sales, lubricant_receipts, receipt_date, date, reading_date, selectedDate, userId } = req.body;
         const parsedUserId = parseUserId(userId);
+        
+        const rawDate = receipt_date || date || reading_date || selectedDate;
+        const entryDate = formatDate(rawDate);
+
+        console.log("Extracted raw lubricant date:", rawDate, "=> Final Entry Date:", entryDate);
 
         if (!parsedUserId) {
             await client.query('ROLLBACK');
             return res.status(400).json({ status: "Error", message: "Valid User ID is required!" });
         }
 
-        const entryDate = formatDate(receipt_date);
         const searchId = 'lub';
 
         await ensureMasterCustomerExists(client, searchId, 'Moblile Khata', parsedUserId);
@@ -575,7 +565,7 @@ exports.updateLubricants = async (req, res) => {
             }
         }
 
-        // 2. Process Sales (Stock Sale -> Credit in Daily Sheet)
+        // 2. Process Sales (Stock Sale)
         if (lubricant_sales && lubricant_sales.length > 0) {
             for (const item of lubricant_sales) {
                 const saleQty = parseInt(item.qty, 10) || 0;
@@ -589,47 +579,21 @@ exports.updateLubricants = async (req, res) => {
 
                     await client.query(
                         `UPDATE lubricant_stocks 
-                         SET current_stock = current_stock - $1,
-                             shift_sales_deduct = 0 
+                         SET current_stock = current_stock - $1 
                          WHERE item_name = $2 AND user_id = $3::integer`,
                         [saleQty, item.name, parsedUserId]
                     );
 
-                    let saleRate = parseFloat(item.price || item.rate || 0);
-                    if (saleRate <= 0) {
-                        const rateRes = await client.query(`
-                            SELECT rate_per_litre, purchase_price FROM fuel_rates 
-                            WHERE LOWER(TRIM(product_name)) = LOWER(TRIM($1))
-                               OR LOWER(TRIM(specific_category)) = LOWER(TRIM($1))
-                            ORDER BY id DESC LIMIT 1
-                        `, [item.name]);
-
-                        if (rateRes.rows.length > 0) {
-                            saleRate = parseFloat(rateRes.rows[0].rate_per_litre || rateRes.rows[0].purchase_price || 0);
-                        }
-                    }
-
-                    const itemTotalAmount = saleQty * saleRate;
-                    const salesDescription = `Mobiloil Sale (${saleQty} ${item.name} @ ${saleRate.toFixed(2)})`;
-
                     await client.query(`
-                        INSERT INTO daily_sheets (search_id, debit_udhaar, credit_vasooli, description, total_balance, sheet_date, user_id)
-                        VALUES ($1, $2, $3, $4, $5, $6::date, $7::integer)
-                    `, [
-                        searchId,
-                        0.00,
-                        itemTotalAmount,
-                        salesDescription,
-                        itemTotalAmount,
-                        entryDate,
-                        parsedUserId
-                    ]);
+                        INSERT INTO lubricant_shift_sales (item_name, liters_sold, sale_date, user_id) 
+                        VALUES ($1, $2, $3::date, $4::integer)
+                    `, [item.name, saleQty, entryDate, parsedUserId]);
                 }
             }
         }
 
         await client.query('COMMIT');
-        res.json({ status: "Success", message: "Lubricant stock aur Daily Sheet successfully update ho gaye hain!" });
+        res.json({ status: "Success", message: "Lubricant stock aur Daily Sheet successfully update ho gaye hain for date: " + entryDate });
     } catch (error) {
         if (client) await client.query('ROLLBACK');
         console.error("Update Lubricants Error:", error);

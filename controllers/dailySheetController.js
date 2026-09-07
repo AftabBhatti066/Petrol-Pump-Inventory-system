@@ -1,14 +1,24 @@
 const db = require('../config/db');
 
-// Safe Date Formatting Helper (YYYY-MM-DD)
+// Helper Function: Date YYYY-MM-DD Format (Fixed for Local Timezone Shift)
 const formatDate = (dateInput) => {
-    if (!dateInput) return '';
-    if (typeof dateInput === 'string') {
-        const match = dateInput.match(/\d{4}-\d{2}-\d{2}/);
-        if (match) return match[0];
+    if (!dateInput) {
+        const today = req.body.entryDate || req.body.date;
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
     }
+
+    if (typeof dateInput === 'string') {
+        const cleanDate = dateInput.split('T')[0];
+        if (/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+            return cleanDate;
+        }
+    }
+
+    // Use local date methods instead of UTC to prevent timezone backward shifting
     const d = new Date(dateInput);
-    if (isNaN(d.getTime())) return '';
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');

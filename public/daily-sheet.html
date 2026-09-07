@@ -453,52 +453,40 @@
             }
         });
 
- function recalculateTotals() {
-    let pageTotalDebit = 0;
-    let pageTotalCredit = 0;
+        // --- RE-CALCULATE PAGE SPECIFIC TOTALS & CLOSING CARRY-FORWARD ---
+        function recalculateTotals() {
+            let pageTotalDebit = 0;
+            let pageTotalCredit = 0;
 
-    const tbody = document.getElementById('sheetTableBody');
-    const rows = tbody.querySelectorAll('tr');
+            const tbody = document.getElementById('sheetTableBody');
+            const rows = tbody.querySelectorAll('tr');
 
-    rows.forEach(tr => {
-        const debitInput = tr.querySelector('.input-debit');
-        const creditInput = tr.querySelector('.input-credit');
+            rows.forEach(tr => {
+                const debitInput = tr.querySelector('.input-debit');
+                const creditInput = tr.querySelector('.input-credit');
 
-        if (debitInput && creditInput) {
-            const debit = parseFloat(debitInput.value) || 0;
-            const credit = parseFloat(creditInput.value) || 0;
+                if (debitInput && creditInput) {
+                    const debit = parseFloat(debitInput.value) || 0;
+                    const credit = parseFloat(creditInput.value) || 0;
 
-            pageTotalDebit += debit;
-            pageTotalCredit += credit;
+                    pageTotalDebit += debit;
+                    pageTotalCredit += credit;
+                }
+            });
+
+            const lblDebit = document.getElementById('lbl_total_debit');
+            const lblCredit = document.getElementById('lbl_total_credit');
+            if (lblDebit) lblDebit.textContent = pageTotalDebit.toLocaleString();
+            if (lblCredit) lblCredit.textContent = pageTotalCredit.toLocaleString();
+
+            const finalClosingBalance = currentDayOpeningBalance + pageTotalCredit - pageTotalDebit;
+
+            const lblNet = document.getElementById('lbl_net_income');
+            if (lblNet) {
+                lblNet.textContent = finalClosingBalance.toLocaleString() + " PKR";
+            }
         }
-    });
 
-    // 1. Us din ka Cash in Hand (Opening Balance)
-    const openingCash = (typeof currentDayOpeningBalance !== 'undefined' && !isNaN(currentDayOpeningBalance)) 
-                        ? parseFloat(currentDayOpeningBalance) 
-                        : 0;
-
-    // 2. Total Credit Formula (Aap ki requirement ke mutabiq same rakha hai)
-    const grandTotalCredit = pageTotalCredit + pageTotalCredit - pageTotalDebit;
-
-    const lblDebit = document.getElementById('lbl_total_debit');
-    const lblCredit = document.getElementById('lbl_total_credit');
-    
-    if (lblDebit) lblDebit.textContent = pageTotalDebit.toLocaleString();
-    if (lblCredit) lblCredit.textContent = grandTotalCredit.toLocaleString();
-
-    // 3. Net Cash Income (Correct independent formula taake is par grandTotalCredit ki wo value asar na kare)
-    const prevNetCash = (typeof previousDaysAccumulatedCash !== 'undefined' && !isNaN(previousDaysAccumulatedCash)) 
-                        ? parseFloat(previousDaysAccumulatedCash) 
-                        : 0;
-    
-    const netCashIncome = prevNetCash + openingCash + pageTotalCredit - pageTotalDebit;
-
-    const lblNet = document.getElementById('lbl_net_income');
-    if (lblNet) {
-        lblNet.textContent = netCashIncome.toLocaleString() + " PKR";
-    }
-}
         async function addNewCustomer() {
             const name = document.getElementById('new_cust_name').value.trim();
             const searchId = document.getElementById('new_cust_id').value.trim();
