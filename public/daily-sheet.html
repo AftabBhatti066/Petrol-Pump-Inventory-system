@@ -646,22 +646,11 @@
 
                 const result = await res.json();
                 if (result.status === "Success" || res.ok) {
-                    alert("Success: Daily Sheet entries saved successfully!");
-                    
-                    if (result.data || result.entries) {
-                        const savedData = result.data || result.entries;
-                        if (Array.isArray(savedData)) {
-                            savedData.forEach((savedItem) => {
-                                const matchingRow = Array.from(rows).find(tr => {
-                                    const sInput = tr.querySelector('.input-search-id');
-                                    return sInput && sInput.value.trim().toLowerCase() === String(savedItem.search_id).trim().toLowerCase();
-                                });
-                                if (matchingRow && savedItem.id) {
-                                    matchingRow.setAttribute('data-id', savedItem.id);
-                                    matchingRow.setAttribute('data-db-id', savedItem.id);
-                                }
-                            });
-                        }
+                    // FIXED: Backend se aane wale fresh data se table ko dobara render karna (Duplication khatam)
+                    if (result.entries && Array.isArray(result.entries)) {
+                        renderTableRows(result.entries);
+                    } else {
+                        loadSheetByDate();
                     }
                 } else {
                     alert("Save Error: " + (result.message || result.db_error));

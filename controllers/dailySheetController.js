@@ -80,7 +80,7 @@ exports.addCustomer = async (req, res) => {
     }
 };
 
-// 3. Bulk Batch Save Daily Sheet Entries (Fixed Lube Sale Processing)
+// 3. Bulk Batch Save Daily Sheet Entries (Fixed Lube Sale Processing & Returning IDs)
 exports.saveDailySheetEntry = async (req, res) => {
     let client;
     try {
@@ -128,7 +128,6 @@ exports.saveDailySheetEntry = async (req, res) => {
             const cleanSearchId = String(search_id).trim().toLowerCase();
             const cleanDesc = description ? String(description).trim() : '';
 
-            // FIXED: Lube Sale ko daily sheet me add hone ke liye skip nahi kar rahe
             const debitVal = parseFloat(debit_udhaar !== undefined ? debit_udhaar : debit) || 0;
             const creditVal = parseFloat(credit_vasooli !== undefined ? credit_vasooli : credit) || 0;
             const total_balance = creditVal - debitVal;
@@ -183,9 +182,44 @@ exports.saveDailySheetEntry = async (req, res) => {
 
         await client.query('COMMIT');
 
+        // FIXED: Save hone ke baad us date ki saari updated rows aur unki IDs fetch kar ke bhejna
+        const fetchUpdatedQuery = `
+            SELECT 
+                ds.id AS db_id,
+                dc.customer_name, 
+                LOWER(TRIM(dc.search_id)) AS search_id, 
+                COALESCE(ds.description, '') AS description,
+                COALESCE(ds.debit_udhaar, 0) AS debit_udhaar, 
+                COALESCE(ds.credit_vasooli, 0) AS credit_vasooli, 
+                COALESCE(ds.total_balance, 0) AS total_balance,
+                ds.created_at
+            FROM daily_sheets ds
+            INNER JOIN daily_customers dc 
+                ON LOWER(TRIM(dc.search_id)) = LOWER(TRIM(ds.search_id)) 
+                AND dc.user_id = ds.user_id
+            WHERE ds.user_id = $1
+              AND ds.sheet_date::date = $2::date
+            ORDER BY ds.id ASC
+        `;
+        const updatedRowsResult = await client.query(fetchUpdatedQuery, [mainUserId, formattedSheetDate]);
+
+        const formattedEntries = updatedRowsResult.rows.map((entry, index) => ({
+            id: entry.db_id,
+            sr_no: index + 1,
+            sheet_sr_no: index + 1,
+            search_id: entry.search_id,
+            customer_name: entry.customer_name,
+            description: entry.description,
+            debit_udhaar: parseFloat(entry.debit_udhaar) || 0,
+            credit_vasooli: parseFloat(entry.credit_vasooli) || 0,
+            total_balance: parseFloat(entry.total_balance) || 0,
+            created_at: entry.created_at
+        }));
+
         return res.json({
             status: "Success",
-            message: `${formattedSheetDate} ka data kamyabi se save ho gaya!`
+            message: `${formattedSheetDate} ka data kamyabi se save ho gaya!`,
+            entries: formattedEntries // <-- Yeh frontend ko fresh IDs wapas dega
         });
 
     } catch (error) {
