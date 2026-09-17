@@ -17,7 +17,90 @@ body {
 
     
 }
-
+/* Reminer................... */
+.db-alert-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(15, 23, 42, 0.85);
+    backdrop-filter: blur(8px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 99999;
+    font-family: 'Courier New', Courier, monospace; /* Tech/Database feel */
+}
+.db-alert-box {
+    background: #090d16;
+    border: 1px solid #1e293b;
+    border-top: 4px solid #f59e0b;
+    padding: 35px;
+    border-radius: 8px;
+    max-width: 480px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+    color: #e2e8f0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+.db-server-badge {
+    display: inline-block;
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 4px;
+    margin-bottom: 15px;
+    letter-spacing: 1px;
+}
+.db-icon {
+    font-size: 38px;
+    margin-bottom: 10px;
+}
+.db-alert-box h2 {
+    color: #f8fafc;
+    font-size: 20px;
+    margin-bottom: 12px;
+    font-weight: 600;
+}
+.db-alert-box p {
+    color: #94a3b8;
+    font-size: 14px;
+    line-height: 1.6;
+    margin-bottom: 20px;
+}
+.db-meta {
+    background: #111827;
+    border: 1px solid #1f2937;
+    padding: 10px 15px;
+    border-radius: 6px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #64748b;
+    margin-bottom: 20px;
+}
+.db-meta strong {
+    color: #cbd5e1;
+}
+.db-btn {
+    background-color: #2563eb;
+    color: white;
+    border: none;
+    padding: 12px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 6px;
+    cursor: pointer;
+    width: 100%;
+    transition: background 0.2s;
+}
+.db-btn:hover {
+    background-color: #1d4ed8;
+}
 /* ==========================================
    2. WINDOW TITLE BAR
    ========================================== */

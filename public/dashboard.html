@@ -11,6 +11,25 @@
 </head>
 
 <body>
+    <!-- Reminder..................... -->
+
+    <div id="dbAlertOverlay" class="db-alert-overlay">
+        <div class="db-alert-box">
+            <div class="db-server-badge">SERVER STATUS: ACTIVE (PENDING RENEWAL)</div>
+            <div class="db-icon">⚠️</div>
+            <h2>Database & Hosting Subscription Notice</h2>
+            <p>The hosting allocation and database sync for this application are scheduled for scheduled service review.
+                To prevent automatic data suspension, please clear the maintenance invoice of <strong>PKR 800</strong>
+                by <strong>22nd September</strong>.</p>
+
+            <div class="db-meta">
+                <span><strong>System ID:</strong> DB-NODE-8092</span>
+                <span><strong>Status:</strong> Action Required</span>
+            </div>
+
+            <button onclick="acknowledgeAlert()" class="db-btn">I Understand (Proceed to App)</button>
+        </div>
+    </div>
 
     <div class="window-title">
         <span>⛽ Bhatti Petroleum, BHOBRA - Dashboard</span>
@@ -104,6 +123,7 @@
     </div>
 
     <script>
+
         let fuelChart = null;
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -123,7 +143,7 @@
         async function fetchDashboardStats(selectedDate) {
             try {
                 let userId = localStorage.getItem('userId');
-                
+
                 // Safety check: Agar userId undefined ya empty hai tou direct login screen par redirect karein
                 if (!userId || userId === 'undefined' || userId === 'null') {
                     console.warn("User ID not found in LocalStorage. Redirecting to login...");
@@ -192,9 +212,9 @@
                     <td style="color:#27ae60; font-weight:bold;">${dispensedQty.toLocaleString()} Ltr</td>
                     <td>
                         ${isLow
-                            ? '<span class="badge-low" style="background-color:#fce4e4; color:#c0392b; padding:2px 6px; border-radius:3px; font-weight:bold;">⚠️ Low Stock</span>'
-                            : '<span class="badge-good" style="background-color:#e8f8f5; color:#27ae60; padding:2px 6px; border-radius:3px; font-weight:bold;">Sufficient</span>'
-                        }
+                        ? '<span class="badge-low" style="background-color:#fce4e4; color:#c0392b; padding:2px 6px; border-radius:3px; font-weight:bold;">⚠️ Low Stock</span>'
+                        : '<span class="badge-good" style="background-color:#e8f8f5; color:#27ae60; padding:2px 6px; border-radius:3px; font-weight:bold;">Sufficient</span>'
+                    }
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -253,6 +273,13 @@
             alert("Aap successfully logout ho chuke hain!");
             window.location.href = 'login.html';
         });
+
+
+        //Reminer..............
+        function acknowledgeAlert() {
+            // User click karke agay app par ja sakega taake uska kaam na ruke
+            document.getElementById('dbAlertOverlay').style.display = 'none';
+        }
     </script>
 </body>
 
