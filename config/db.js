@@ -2,7 +2,7 @@ const { Pool } = require('pg');
 require('dotenv').config();
 
 // Direct Supabase Connection String (Port 5432)
-const connectionString = process.env.DATABASE_URL || "postgresql://postgres:aftab4049102@db.nwydokomsuozvvqwekwn.supabase.co:5432/postgres";
+// const connectionString = process.env.DATABASE_URL || "postgresql://postgres:aftab4049102@db.nwydokomsuozvvqwekwn.supabase.co:5432/postgres";
 
 const pool = new Pool({
     connectionString: connectionString,

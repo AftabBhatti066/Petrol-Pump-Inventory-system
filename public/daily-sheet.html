@@ -454,38 +454,48 @@
         });
 
         // --- RE-CALCULATE PAGE SPECIFIC TOTALS & CLOSING CARRY-FORWARD ---
-        function recalculateTotals() {
-            let pageTotalDebit = 0;
-            let pageTotalCredit = 0;
+       // --- RE-CALCULATE PAGE SPECIFIC TOTALS & CLOSING CARRY-FORWARD ---
+function recalculateTotals() {
+    let pageTotalDebit = 0;
+    let pageTotalCredit = 0;
 
-            const tbody = document.getElementById('sheetTableBody');
-            const rows = tbody.querySelectorAll('tr');
+    const tbody = document.getElementById('sheetTableBody');
+    const rows = tbody.querySelectorAll('tr');
 
-            rows.forEach(tr => {
-                const debitInput = tr.querySelector('.input-debit');
-                const creditInput = tr.querySelector('.input-credit');
+    rows.forEach(tr => {
+        const debitInput = tr.querySelector('.input-debit');
+        const creditInput = tr.querySelector('.input-credit');
 
-                if (debitInput && creditInput) {
-                    const debit = parseFloat(debitInput.value) || 0;
-                    const credit = parseFloat(creditInput.value) || 0;
+        if (debitInput && creditInput) {
+            const debit = parseFloat(debitInput.value) || 0;
+            const credit = parseFloat(creditInput.value) || 0;
 
-                    pageTotalDebit += debit;
-                    pageTotalCredit += credit;
-                }
-            });
-
-            const lblDebit = document.getElementById('lbl_total_debit');
-            const lblCredit = document.getElementById('lbl_total_credit');
-            if (lblDebit) lblDebit.textContent = pageTotalDebit.toLocaleString();
-            if (lblCredit) lblCredit.textContent = pageTotalCredit.toLocaleString();
-
-            const finalClosingBalance = currentDayOpeningBalance + pageTotalCredit - pageTotalDebit;
-
-            const lblNet = document.getElementById('lbl_net_income');
-            if (lblNet) {
-                lblNet.textContent = finalClosingBalance.toLocaleString() + " PKR";
-            }
+            pageTotalDebit += debit;
+            pageTotalCredit += credit;
         }
+    });
+
+    // Sirf aaj ki entries (Credit aur Debit) se us din ka cash in hand nikalna:
+    // (Agar opening balance ko ismein shamil nahi karna, toh yahan currentDayOpeningBalance add nahi hoga)
+    const todayCashInHand = pageTotalCredit - pageTotalDebit;
+
+    // Ab isay credit mein add aur debit minus karna:
+    const calculatedCredit = pageTotalCredit + todayCashInHand - pageTotalDebit;
+
+    const lblDebit = document.getElementById('lbl_total_debit');
+    const lblCredit = document.getElementById('lbl_total_credit');
+    
+    if (lblDebit) lblDebit.textContent = pageTotalDebit.toLocaleString();
+    if (lblCredit) lblCredit.textContent = calculatedCredit.toLocaleString();
+
+    // Net closing balance mein purana opening balance aur aaj ka net income mil kar show honge
+    const finalClosingBalance = currentDayOpeningBalance + todayCashInHand;
+
+    const lblNet = document.getElementById('lbl_net_income');
+    if (lblNet) {
+        lblNet.textContent = finalClosingBalance.toLocaleString() + " PKR";
+    }
+}
 
         async function addNewCustomer() {
             const name = document.getElementById('new_cust_name').value.trim();
