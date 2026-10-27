@@ -56,10 +56,10 @@
                 <input type="text" id="sheet_search_filter" placeholder="Search by ID or Name..."
                     oninput="handleGlobalMasterSearch(this.value)" autocomplete="off"
                     style="width: 100%; padding: 5px; border: 1px solid #ccc; border-radius: 4px;">
-                
+
                 <!-- Dynamic Master Customer Dropdown -->
-                <div id="masterSearchDropdown" 
-                     style="display: none; position: absolute; top: 100%; left: 0; right: 0; 
+                <div id="masterSearchDropdown"
+                    style="display: none; position: absolute; top: 100%; left: 0; right: 0; 
                             background: #ffffff; border: 1px solid #2980b9; border-radius: 4px; 
                             max-height: 220px; overflow-y: auto; z-index: 1000; box-shadow: 0px 4px 10px rgba(0,0,0,0.15); margin-top: 2px;">
                 </div>
@@ -90,7 +90,7 @@
                     style="color: #1f618d;">0</span></span>
         </div>
         <div class="net-income">
-            Net Cash Income: <span id="lbl_net_income">0</span> 
+            Net Cash Income: <span id="lbl_net_income">0</span>
         </div>
     </div>
 
@@ -99,6 +99,19 @@
         let customerMap = {};
         let currentDayOpeningBalance = 0;
         let isSavingInProgress = false;
+
+        // --- UNIQUE ROW ID GENERATOR (duplicate save se bachane ke liye) ---
+        function generateClientRowId() {
+            if (window.crypto && typeof crypto.randomUUID === 'function') {
+                return crypto.randomUUID();
+            }
+            // Fallback agar browser randomUUID support na kare (purane browsers / http)
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
 
         // --- DATE CONVERSION UTILITIES ---
         function getTodayDDMMYYYY() {
@@ -255,6 +268,9 @@
             }
             if (data.created_at) tr.setAttribute('data-created-at', data.created_at);
             tr.setAttribute('data-search-id', searchIdKey);
+
+            // FIX: har row ko ek unique client id (duplicate insert rokne ke liye)
+            tr.setAttribute('data-client-id', data.client_row_id || generateClientRowId());
 
             const debitVal = (data.debit_udhaar !== undefined && data.debit_udhaar !== null && parseFloat(data.debit_udhaar) !== 0) ? data.debit_udhaar : '';
             const creditVal = (data.credit_vasooli !== undefined && data.credit_vasooli !== null && parseFloat(data.credit_vasooli) !== 0) ? data.credit_vasooli : '';
@@ -474,12 +490,21 @@
                 }
             });
 
+            // Sirf aaj ki entries (Credit aur Debit) se us din ka cash in hand nikalna:
+            // (Agar opening balance ko ismein shamil nahi karna, toh yahan currentDayOpeningBalance add nahi hoga)
+            const todayCashInHand = pageTotalCredit - pageTotalDebit;
+
+            // Ab isay credit mein add aur debit minus karna:
+            const calculatedCredit = pageTotalCredit;
+
             const lblDebit = document.getElementById('lbl_total_debit');
             const lblCredit = document.getElementById('lbl_total_credit');
-            if (lblDebit) lblDebit.textContent = pageTotalDebit.toLocaleString();
-            if (lblCredit) lblCredit.textContent = pageTotalCredit.toLocaleString();
 
-            const finalClosingBalance = currentDayOpeningBalance + pageTotalCredit - pageTotalDebit;
+            if (lblDebit) lblDebit.textContent = pageTotalDebit.toLocaleString();
+            if (lblCredit) lblCredit.textContent = calculatedCredit.toLocaleString();
+
+            // Net closing balance mein purana opening balance aur aaj ka net income mil kar show honge
+            const finalClosingBalance = currentDayOpeningBalance + todayCashInHand;
 
             const lblNet = document.getElementById('lbl_net_income');
             if (lblNet) {
@@ -519,7 +544,7 @@
 
                     const tbody = document.getElementById('sheetTableBody');
                     const currentRows = tbody.querySelectorAll('tr');
-                    
+
                     let targetTr = null;
                     if (currentRows.length > 0) {
                         const lastTr = currentRows[currentRows.length - 1];
@@ -578,7 +603,6 @@
                 const rowId = tr.getAttribute('data-id') || tr.getAttribute('data-db-id') || null;
 
                 const searchIdInput = tr.querySelector('.input-search-id');
-                const custNameInput = tr.querySelector('.input-cust-name');
                 const descInput = tr.querySelector('.input-description');
                 const debitInput = tr.querySelector('.input-debit');
                 const creditInput = tr.querySelector('.input-credit');
@@ -611,7 +635,9 @@
                         debit: debitVal,
                         credit: creditVal,
                         sheet_date: formattedISO,
-                        userId: userId
+                        userId: userId,
+                        // FIX: unique row id, backend isse duplicate insert rokta hai
+                        client_row_id: tr.getAttribute('data-client-id')
                     };
 
                     if (rowId) {
@@ -646,29 +672,20 @@
 
                 const result = await res.json();
                 if (result.status === "Success" || res.ok) {
-                    alert("Success: Daily Sheet entries saved successfully!");
-                    
-                    if (result.data || result.entries) {
-                        const savedData = result.data || result.entries;
-                        if (Array.isArray(savedData)) {
-                            savedData.forEach((savedItem) => {
-                                const matchingRow = Array.from(rows).find(tr => {
-                                    const sInput = tr.querySelector('.input-search-id');
-                                    return sInput && sInput.value.trim().toLowerCase() === String(savedItem.search_id).trim().toLowerCase();
-                                });
-                                if (matchingRow && savedItem.id) {
-                                    matchingRow.setAttribute('data-id', savedItem.id);
-                                    matchingRow.setAttribute('data-db-id', savedItem.id);
-                                }
-                            });
-                        }
+                    // Backend se aane wale fresh data se table ko dobara render karna
+                    if (result.entries && Array.isArray(result.entries)) {
+                        renderTableRows(result.entries);
+                    } else {
+                        await loadSheetByDate();
                     }
                 } else {
                     alert("Save Error: " + (result.message || result.db_error));
                 }
             } catch (err) {
                 console.error("Saving error:", err);
-                alert("Network Error: Communication failed while saving data to the server!");
+                alert("Network Error: Sheet reload ho rahi hai, check karo data save hua ya nahi.");
+                // FIX: error ke baad bhi sheet reload karo, taake rows ko DB wali id mil jaye
+                await loadSheetByDate();
             } finally {
                 isSavingInProgress = false;
                 if (saveBtn) {

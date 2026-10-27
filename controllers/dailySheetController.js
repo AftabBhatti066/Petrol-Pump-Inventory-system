@@ -2,8 +2,10 @@ const db = require('../config/db');
 
 // Helper Function: Date YYYY-MM-DD Format (Fixed for Local Timezone Shift)
 const formatDate = (dateInput) => {
+    // FIX: pehle yahan `req` use ho raha tha jo is function me defined nahi hai (crash).
+    // Ab khali date par aaj ki local date return hoti hai.
     if (!dateInput) {
-        const today = req.body.entryDate || req.body.date;
+        const today = new Date();
         const year = today.getFullYear();
         const month = String(today.getMonth() + 1).padStart(2, '0');
         const day = String(today.getDate()).padStart(2, '0');
@@ -80,7 +82,7 @@ exports.addCustomer = async (req, res) => {
     }
 };
 
-// 3. Bulk Batch Save Daily Sheet Entries (Fixed Lube Sale Processing & Returning IDs)
+// 3. Bulk Batch Save Daily Sheet Entries (Idempotent: duplicate insert nahi hoga)
 exports.saveDailySheetEntry = async (req, res) => {
     let client;
     try {
@@ -109,18 +111,19 @@ exports.saveDailySheetEntry = async (req, res) => {
         const customerMap = new Map();
 
         for (const item of rawEntries) {
-            const { 
-                id, 
-                search_id, 
-                debit_udhaar, 
-                credit_vasooli, 
-                debit, 
-                credit, 
-                description, 
-                customer_name, 
-                userId
+            const {
+                id,
+                search_id,
+                debit_udhaar,
+                credit_vasooli,
+                debit,
+                credit,
+                description,
+                customer_name,
+                userId,
+                client_row_id
             } = item;
-            
+
             const currentUserId = userId || mainUserId;
 
             if (!search_id) continue;
@@ -144,16 +147,23 @@ exports.saveDailySheetEntry = async (req, res) => {
                     WHERE id = $6 AND user_id = $7
                 `;
                 await client.query(updateQuery, [cleanSearchId, debitVal, creditVal, cleanDesc, total_balance, id, currentUserId]);
-            } 
-            // Insert new entry
+            }
+            // Insert new entry (client_row_id ki wajah se dobara aaye to sirf update hoga)
             else if (cleanSearchId !== '' && (debitVal > 0 || creditVal > 0 || cleanDesc !== '')) {
                 const insertQuery = `
                     INSERT INTO daily_sheets 
-                    (search_id, debit_udhaar, credit_vasooli, description, total_balance, sheet_date, user_id)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    (search_id, debit_udhaar, credit_vasooli, description, total_balance, sheet_date, user_id, client_row_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    ON CONFLICT (user_id, client_row_id) DO UPDATE SET
+                        search_id = EXCLUDED.search_id,
+                        debit_udhaar = EXCLUDED.debit_udhaar,
+                        credit_vasooli = EXCLUDED.credit_vasooli,
+                        description = EXCLUDED.description,
+                        total_balance = EXCLUDED.total_balance
                 `;
                 await client.query(insertQuery, [
-                    cleanSearchId, debitVal, creditVal, cleanDesc, total_balance, formattedSheetDate, currentUserId
+                    cleanSearchId, debitVal, creditVal, cleanDesc, total_balance,
+                    formattedSheetDate, currentUserId, client_row_id || null
                 ]);
             }
         }
@@ -182,7 +192,7 @@ exports.saveDailySheetEntry = async (req, res) => {
 
         await client.query('COMMIT');
 
-        // FIXED: Save hone ke baad us date ki saari updated rows aur unki IDs fetch kar ke bhejna
+        // Save hone ke baad us date ki saari updated rows aur unki IDs fetch kar ke bhejna
         const fetchUpdatedQuery = `
             SELECT 
                 ds.id AS db_id,
@@ -219,16 +229,16 @@ exports.saveDailySheetEntry = async (req, res) => {
         return res.json({
             status: "Success",
             message: `${formattedSheetDate} ka data kamyabi se save ho gaya!`,
-            entries: formattedEntries // <-- Yeh frontend ko fresh IDs wapas dega
+            entries: formattedEntries // Yeh frontend ko fresh IDs wapas dega
         });
 
     } catch (error) {
         if (client) await client.query('ROLLBACK');
         console.error("Save Sheet Entry Error Details:", error);
-        return res.status(500).json({ 
-            status: "Error", 
+        return res.status(500).json({
+            status: "Error",
             message: error.message || "Data save karne mein error aaya hai",
-            db_error: error.message 
+            db_error: error.message
         });
     } finally {
         if (client) client.release();
@@ -238,8 +248,8 @@ exports.saveDailySheetEntry = async (req, res) => {
 // 4. Fetch Daily Sheet By Date
 exports.getDailySheetByDate = async (req, res) => {
     try {
-        const { date } = req.params; 
-        const { userId } = req.query; 
+        const { date } = req.params;
+        const { userId } = req.query;
 
         if (!userId) {
             return res.status(400).json({ status: "Error", message: "User ID parameter missing!" });
@@ -265,7 +275,7 @@ exports.getDailySheetByDate = async (req, res) => {
               AND ds.sheet_date::date = $2::date
             ORDER BY ds.id ASC
         `;
-        
+
         const { rows } = await db.query(query, [userId, formattedDate]);
 
         const formattedEntries = rows.map((entry, index) => ({
@@ -289,10 +299,10 @@ exports.getDailySheetByDate = async (req, res) => {
             WHERE user_id = $1 
               AND sheet_date::date < $2::date
         `;
-        
+
         const openingCumResult = await db.query(openingCumulativeQuery, [userId, formattedDate]);
         const openingRow = openingCumResult.rows[0] || {};
-        
+
         const opening_debit = parseFloat(openingRow.opening_debit) || 0;
         const opening_credit = parseFloat(openingRow.opening_credit) || 0;
         const opening_balance = opening_credit - opening_debit;
@@ -348,7 +358,7 @@ exports.deleteSheetEntry = async (req, res) => {
 exports.deleteCustomerPermanently = async (req, res) => {
     try {
         const { search_id } = req.params;
-        const { userId } = req.query; 
+        const { userId } = req.query;
 
         if (!userId) {
             return res.status(400).json({ status: "Error", message: "User ID missing!" });
@@ -387,7 +397,7 @@ exports.getExpensesReport = async (req, res) => {
 
         if (sDate && eDate) {
             dateCondition = `AND ds.sheet_date::date BETWEEN $3::date AND $4::date`;
-            queryParams = [cleanUserId, EXPENSE_SEARCH_IDS, sDate, eDate]; // FIXED: queryParams typo
+            queryParams = [cleanUserId, EXPENSE_SEARCH_IDS, sDate, eDate];
         }
 
         const query = `
@@ -431,10 +441,10 @@ exports.getExpensesReport = async (req, res) => {
 
     } catch (error) {
         console.error("Fetch Static Expenses Error:", error);
-        return res.status(500).json({ 
-            status: "Error", 
+        return res.status(500).json({
+            status: "Error",
             message: "Expense report fetch karne mein masla aaya hai.",
-            db_error: error.message 
+            db_error: error.message
         });
     }
 };
