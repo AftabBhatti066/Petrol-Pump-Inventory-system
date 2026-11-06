@@ -695,24 +695,89 @@
             }
         }
 
+        // Page open hone par default date set karna
+        async function initializeWorkingDate() {
+            const dateInput = document.getElementById('working_date');
+            const saveBtn = document.querySelector('.btn-save-sheet');
+            const userId = localStorage.getItem('userId');
+
+            if (!userId) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            if (!dateInput) return;
+
+            dateInput.disabled = true;
+            if (saveBtn) saveBtn.disabled = true;
+
+            try {
+                const response = await fetch(
+                    `${API_URL}/default-date?userId=${encodeURIComponent(userId)}`,
+                    { cache: 'no-store' }
+                );
+
+                const result = await response.json();
+
+                if (!response.ok || result.status !== 'Success') {
+                    throw new Error(
+                        result.message || 'Working date load failed'
+                    );
+                }
+
+                if (result.working_date === null) {
+                    // Koi saved sheet nahi hai to current date
+                    dateInput.value = getTodayDDMMYYYY();
+                } else {
+                    if (
+                        typeof result.working_date !== 'string' ||
+                        !/^\d{4}-\d{2}-\d{2}$/.test(result.working_date)
+                    ) {
+                        throw new Error('Invalid working date response');
+                    }
+
+                    const [year, month, day] = result.working_date.split('-');
+                    dateInput.value = `${day}-${month}-${year}`;
+                }
+
+                // Selected date ki sheet sirf ek dafa load hogi
+                await loadSheetByDate();
+
+            } catch (error) {
+                console.error('Working date initialization error:', error);
+
+                dateInput.value = '';
+
+                alert(
+                    'Last saved date load nahi hui. ' +
+                    'Page refresh karein ya date manually enter karein.'
+                );
+            } finally {
+                dateInput.disabled = false;
+                if (saveBtn) saveBtn.disabled = false;
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             const dateInput = document.getElementById('working_date');
-            if (dateInput) {
-                dateInput.value = getTodayDDMMYYYY();
 
+            if (dateInput) {
                 dateInput.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter') {
                         dateInput.blur();
                     }
                 });
             }
-            loadSheetByDate();
+
+            initializeWorkingDate();
 
             const logoutBtn = document.getElementById('logoutBtn');
+
             if (logoutBtn) {
                 logoutBtn.addEventListener('click', () => {
                     localStorage.removeItem('userId');
                     localStorage.removeItem('username');
+
                     alert("Logout Successful: You have been logged out.");
                     window.location.href = 'login.html';
                 });

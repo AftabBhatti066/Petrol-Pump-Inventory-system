@@ -169,6 +169,14 @@
             }
         }
     </style>
+<style>
+        .report-date-wrap { display:inline-flex; align-items:center; gap:4px; }
+        .report-date-wrap input[type=text] { width:105px; padding:6px; font:inherit; border:1px solid #aaa; border-radius:4px; }
+        .report-date-calendar { position:relative; display:inline-grid; place-items:center; width:30px; height:30px; }
+        .report-date-calendar input[type=date] { position:absolute; inset:0; box-sizing:border-box; width:100%; height:100%; opacity:0; cursor:pointer; }
+        .report-date-calendar input::-webkit-calendar-picker-indicator { position:absolute; inset:0; width:auto; height:auto; cursor:pointer; }
+        .report-date-calendar:focus-within { outline:2px solid #2471a3; }
+    </style>
 </head>
 
 <body>
@@ -206,11 +214,21 @@
         <div class="filter-card">
             <div class="filter-group">
                 <label>📅 From Date:</label>
-                <input type="date" id="tb_start_date">
+                <span class="report-date-wrap">
+                    <input type="text" id="tb_start_date_display" aria-label="Trial Balance start date (dd/mm/yyyy)" placeholder="dd/mm/yyyy" maxlength="10" autocomplete="off">
+                    <span class="report-date-calendar"><span aria-hidden="true">📅</span>
+                        <input type="date" id="tb_start_date" aria-label="Choose Trial Balance start date from calendar">
+                    </span>
+                </span>
             </div>
             <div class="filter-group">
                 <label>📅 To Date:</label>
-                <input type="date" id="tb_end_date">
+                <span class="report-date-wrap">
+                    <input type="text" id="tb_end_date_display" aria-label="Trial Balance end date (dd/mm/yyyy)" placeholder="dd/mm/yyyy" maxlength="10" autocomplete="off">
+                    <span class="report-date-calendar"><span aria-hidden="true">📅</span>
+                        <input type="date" id="tb_end_date" aria-label="Choose Trial Balance end date from calendar">
+                    </span>
+                </span>
             </div>
             <button class="btn btn-register" onclick="loadTrialBalance()"><i class="fas fa-sync"></i> Filter / Refresh Data</button>
             <button class="btn btn-reset btn-print" onclick="window.print()"><i class="fas fa-print"></i> Print Trial Balance</button>
@@ -260,11 +278,21 @@
         <div class="filter-card">
             <div class="filter-group" style="flex: 0 1 auto;">
                 <label>📅 Start Date:</label>
-                <input type="date" id="profit_start_date">
+                <span class="report-date-wrap">
+                    <input type="text" id="profit_start_date_display" aria-label="Dispenser Profit start date (dd/mm/yyyy)" placeholder="dd/mm/yyyy" maxlength="10" autocomplete="off">
+                    <span class="report-date-calendar"><span aria-hidden="true">📅</span>
+                        <input type="date" id="profit_start_date" aria-label="Choose Dispenser Profit start date from calendar">
+                    </span>
+                </span>
             </div>
             <div class="filter-group" style="flex: 0 1 auto;">
                 <label>📅 End Date:</label>
-                <input type="date" id="profit_end_date">
+                <span class="report-date-wrap">
+                    <input type="text" id="profit_end_date_display" aria-label="Dispenser Profit end date (dd/mm/yyyy)" placeholder="dd/mm/yyyy" maxlength="10" autocomplete="off">
+                    <span class="report-date-calendar"><span aria-hidden="true">📅</span>
+                        <input type="date" id="profit_end_date" aria-label="Choose Dispenser Profit end date from calendar">
+                    </span>
+                </span>
             </div>
             <button class="btn btn-register" onclick="loadProfitReport()"><i class="fas fa-chart-line"></i> Calculate Profit</button>
             <button class="btn btn-reset btn-print" onclick="window.print()"><i class="fas fa-print"></i> Print Statement</button>
@@ -272,7 +300,7 @@
 
         <div class="metric-cards">
             <div class="card card-balance">
-                <span>Total Litres Sold</span>
+                <span>Quantity Sold</span>
                 <h3 id="profitTotalLitres">0.00 Ltr</h3>
             </div>
             <div class="card card-credit">
@@ -280,7 +308,7 @@
                 <h3 id="profitTotalSales">0.00 PKR</h3>
             </div>
             <div class="card card-cost">
-                <span>Total Fuel Cost</span>
+                <span>Cost of Sales</span>
                 <h3 id="profitTotalCost">0.00 PKR</h3>
             </div>
             <div class="card card-expense">
@@ -299,7 +327,7 @@
                     <th>Date</th>
                     <th>Dispenser Nozzle</th>
                     <th>Product</th>
-                    <th>Litres Sold</th>
+                    <th>Quantity Sold</th>
                     <th>Purchase Rate</th>
                     <th>Sale Rate</th>
                     <th>Total Cost</th>
@@ -336,6 +364,32 @@
         return `${year}-${month}-${day}`;
     }
 
+    function bindReportDate(id) {
+        const picker = document.getElementById(id);
+        const display = document.getElementById(id + '_display');
+        function showDate() {
+            display.value = picker.value.split('-').reverse().join('/');
+            display.setCustomValidity('');
+        }
+        function readDate() {
+            const value = display.value.trim();
+            const iso = /^\d{2}\/\d{2}\/\d{4}$/.test(value) ? value.split('/').reverse().join('-') : '';
+            picker.value = iso;
+            display.setCustomValidity(value && (!iso || picker.value !== iso)
+                ? 'Valid date dd/mm/yyyy mein likhein.' : '');
+        }
+        picker.addEventListener('input', showDate);
+        picker.addEventListener('change', showDate);
+        display.addEventListener('input', readDate);
+        display.addEventListener('change', readDate);
+        showDate();
+    }
+
+    function validReportDates(prefix) {
+        return ['start', 'end'].every(side =>
+            document.getElementById(prefix + '_' + side + '_date_display').reportValidity());
+    }
+
     function setDefaultDates() {
         const now = new Date();
         const firstDayObj = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -366,6 +420,7 @@
         setElementText('printDate', "Date: " + today.toLocaleDateString('en-GB'));
 
         setDefaultDates();
+        ['tb_start_date', 'tb_end_date', 'profit_start_date', 'profit_end_date'].forEach(bindReportDate);
         loadTrialBalance();
     });
 
@@ -396,6 +451,7 @@
 
     // --- 1. TRIAL BALANCE LOGIC ---
     async function loadTrialBalance() {
+        if (!validReportDates('tb')) return;
         const userId = localStorage.getItem('userId');
         const tbStart = document.getElementById('tb_start_date');
         const tbEnd = document.getElementById('tb_end_date');
@@ -527,108 +583,65 @@
     setElementText('footCredit', grandTotalCredit.toLocaleString('en-PK') + ' PKR');
 }
     // --- 2. PROFIT REPORT LOGIC ---
+    let profitRequest = 0;
     async function loadProfitReport() {
-        const userId = localStorage.getItem('userId');
-        const pStart = document.getElementById('profit_start_date');
-        const pEnd = document.getElementById('profit_end_date');
-
-        const startDate = pStart ? pStart.value : '';
-        const endDate = pEnd ? pEnd.value : '';
-
-        const tbody = document.getElementById('profitTableBody');
-        const tfoot = document.getElementById('profitTableFooter');
-        
-        if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">Calculating Net Profit...</td></tr>';
-        if (tfoot) tfoot.innerHTML = '';
-
+        if (!validReportDates('profit')) return;
+        const request = ++profitRequest;
+        const from = document.getElementById('profit_start_date').value;
+        const to = document.getElementById('profit_end_date').value;
+        const body = document.getElementById('profitTableBody');
+        const foot = document.getElementById('profitTableFooter');
+        const cash = value => value == null ? 'Rate required' :
+            Number(value).toLocaleString('en-PK', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' PKR';
+        function notice(text) {
+            body.replaceChildren();
+            const cell = body.insertRow().insertCell();
+            cell.colSpan = 9;
+            cell.textContent = text;
+        }
+        foot.replaceChildren();
+        for (const id of ['profitTotalLitres','profitTotalSales','profitTotalCost','profitTotalExpenses','profitNetProfit']) setElementText(id, '—');
+        notice('Loading…');
+        if (!from || !to || from > to) return notice('Select valid From and To dates.');
         try {
-            const query = `${API_REPORTS_URL}/dispenser-profit?userId=${userId}&startDate=${startDate}&endDate=${endDate}`;
-            const res = await fetch(query);
-            const rawText = await res.text();
-
-            if (!res.ok) {
-                throw new Error(`Server returned status ${res.status}: ${rawText.substring(0, 100)}`);
-            }
-
-            const result = JSON.parse(rawText);
-
-            if (result.status === "Success" || result.success) {
-                const summary = result.summary || {};
-                const totalLitres = Number(summary.total_liters_sold || summary.total_litres || 0);
-                const totalSales = Number(summary.total_revenue_pkr || summary.total_sales || 0);
-                const totalCost = Number(summary.total_cost_pkr || summary.total_cost || 0);
-                const grossProfit = Number(summary.gross_profit_pkr || summary.gross_profit || 0);
-                const totalExpenses = Number(summary.total_expenses_pkr || summary.total_expenses || 0);
-                const netProfit = Number(summary.total_profit_pkr || summary.net_profit || 0);
-
-                setElementText('profitTotalLitres', totalLitres.toFixed(2) + ' Ltr');
-                setElementText('profitTotalSales', totalSales.toLocaleString('en-PK') + ' PKR');
-                setElementText('profitTotalCost', totalCost.toLocaleString('en-PK') + ' PKR');
-                setElementText('profitTotalExpenses', totalExpenses.toLocaleString('en-PK') + ' PKR');
-                setElementText('profitNetProfit', netProfit.toLocaleString('en-PK') + ' PKR');
-
-                if (tbody) {
-                    tbody.innerHTML = '';
-                    if (!result.data || result.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">No dispenser sales recorded in selected dates.</td></tr>';
-                    } else {
-                        result.data.forEach(row => {
-                            let dateStr = '-';
-                            const rawDate = row.reading_date || row.date || row.created_at;
-                            if (rawDate) {
-                                const d = new Date(rawDate);
-                                dateStr = isNaN(d) ? rawDate : d.toLocaleDateString('en-GB');
-                            }
-
-                            const nozzle = row.nozzle_name || row.nozzle || row.dispenser_nozzle || '-';
-                            const product = row.fuel_type || row.product || row.product_type || '-';
-                            const liters = Number(row.liters_sold || row.litres || 0);
-                            const costRate = Number(row.cost_rate || row.purchase_rate || 0);
-                            const saleRate = Number(row.selling_rate || row.sale_rate || 0);
-                            const totalCostRow = Number(row.total_cost_pkr || row.total_cost || (liters * costRate));
-                            const totalRevRow = Number(row.total_revenue_pkr || row.total_revenue || (liters * saleRate));
-                            const grossProfitRow = Number(row.gross_profit_pkr || row.gross_profit || (totalRevRow - totalCostRow));
-
-                            const tr = document.createElement('tr');
-                            tr.innerHTML = `
-                                <td>${dateStr}</td>
-                                <td><strong>${nozzle}</strong></td>
-                                <td>${product}</td>
-                                <td>${liters.toFixed(2)} Ltr</td>
-                                <td>${costRate.toFixed(2)} PKR</td>
-                                <td>${saleRate.toFixed(2)} PKR</td>
-                                <td>${totalCostRow.toLocaleString('en-PK')} PKR</td>
-                                <td>${totalRevRow.toLocaleString('en-PK')} PKR</td>
-                                <td style="color:#059669; font-weight:bold;">${grossProfitRow.toLocaleString('en-PK')} PKR</td>
-                            `;
-                            tbody.appendChild(tr);
-                        });
-                    }
+            const params = new URLSearchParams({userId: localStorage.getItem('userId') || '',startDate:from,endDate:to});
+            const response = await fetch(API_REPORTS_URL + '/dispenser-profit?' + params, {cache:'no-store'});
+            const result = await response.json();
+            if (request !== profitRequest) return;
+            if (!response.ok || !result.success) throw new Error(result.message || 'Report load failed.');
+            const s = result.summary;
+            setElementText('profitTotalLitres', s.total_liters_sold + ' Ltr / ' + s.total_lubricant_units + ' units');
+            setElementText('profitTotalSales', cash(s.total_revenue_pkr));
+            setElementText('profitTotalCost', cash(s.total_cost_pkr));
+            setElementText('profitTotalExpenses', cash(s.total_expenses_pkr));
+            setElementText('profitNetProfit', cash(s.total_profit_pkr));
+            body.replaceChildren();
+            if (!result.data.length) notice('No sales in selected dates.');
+            for (const r of result.data) {
+                const tr = body.insertRow();
+                const qty = r.quantity + (r.kind === 'fuel' ? ' Ltr' : ' units');
+                for (const value of [r.reading_date.split('-').reverse().join('/'), r.nozzle_name, r.fuel_type, qty,
+                    cash(r.cost_rate), cash(r.selling_rate), cash(r.total_cost_pkr), cash(r.total_revenue_pkr), cash(r.gross_profit_pkr)]) {
+                    tr.insertCell().textContent = value;
                 }
-
-                if (tfoot) {
-                    tfoot.innerHTML = `
-                        <tr>
-                            <td colspan="7" style="text-align:right;">Total Sales Gross Profit:</td>
-                            <td colspan="2" style="color:#047857; text-align:right;">+ ${grossProfit.toLocaleString('en-PK')} PKR</td>
-                        </tr>
-                        <tr style="color: #dc2626;">
-                            <td colspan="7" style="text-align:right;">(-) Operating Expenses:</td>
-                            <td colspan="2" style="text-align:right;">- ${totalExpenses.toLocaleString('en-PK')} PKR</td>
-                        </tr>
-                        <tr style="background: #e2e8f0; font-size: 15px;">
-                            <td colspan="7" style="text-align:right;">NET PROFIT:</td>
-                            <td colspan="2" style="color:${netProfit >= 0 ? '#059669' : '#dc2626'}; text-align:right;">${netProfit.toLocaleString('en-PK')} PKR</td>
-                        </tr>
-                    `;
-                }
-
-            } else {
-                throw new Error(result.message || "Failed to calculate profit");
+                tr.cells[4].title = r.cost_source || 'Purchase rate required';
             }
-        } catch (err) {
-            console.error("Profit Report Error:", err);
-            if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="color:red; text-align:center;">Error: ${err.message}</td></tr>`;
+            for (const [label,value] of [['Gross profit',s.gross_profit_pkr],['Operating expenses',s.total_expenses_pkr],['Net profit',s.total_profit_pkr]]) {
+                const row = foot.insertRow();
+                const title = row.insertCell();
+                title.colSpan = 7;
+                title.textContent = label;
+                const amount = row.insertCell();
+                amount.colSpan = 2;
+                amount.textContent = cash(value);
+            }
+            if (s.missing_rate_rows) {
+                const cell=foot.insertRow().insertCell();
+                cell.colSpan=9;
+                cell.textContent=s.missing_rate_rows+' sale row(s) need a purchase or sale rate. Check the marked rows.';
+            }
+        } catch (error) {
+            if (request === profitRequest) notice(error.message);
         }
     }
 </script>

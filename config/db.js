@@ -9,8 +9,9 @@ const pool = new Pool({
     ssl: {
         rejectUnauthorized: false
     },
-    connectionTimeoutMillis: 10000, // 10 seconds
-    idleTimeoutMillis: 30000
+    connectionTimeoutMillis: 30000, // Connection ke liye 30 seconds wait
+    idleTimeoutMillis: 30000,       // Khali connection 30 seconds tak pool mein rakho
+    keepAlive: true
 });
 
 const db = {

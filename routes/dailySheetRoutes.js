@@ -22,4 +22,6 @@ router.delete('/delete-customer/:search_id', dailySheetController.deleteCustomer
 
 router.get('/expenses-report', dailySheetController.getExpensesReport);
 
+router.get('/default-date', dailySheetController.getDefaultWorkingDate);
+
 module.exports = router;

@@ -9,6 +9,14 @@
     <!-- CSS Dependencies -->
     <link rel="stylesheet" href="style.css">
     <link rel="icon" type="image/png" href="/logo.png">
+<style>
+        .report-date-wrap { display:inline-flex; align-items:center; gap:4px; }
+        .report-date-wrap input[type=text] { width:105px; padding:6px; font:inherit; border:1px solid #aaa; border-radius:4px; }
+        .report-date-calendar { position:relative; display:inline-grid; place-items:center; width:30px; height:30px; }
+        .report-date-calendar input[type=date] { position:absolute; inset:0; box-sizing:border-box; width:100%; height:100%; opacity:0; cursor:pointer; }
+        .report-date-calendar input::-webkit-calendar-picker-indicator { position:absolute; inset:0; width:auto; height:auto; cursor:pointer; }
+        .report-date-calendar:focus-within { outline:2px solid #2471a3; }
+    </style>
 </head>
 
 <body>
@@ -36,12 +44,22 @@
     <div class="filter-card" style="margin-top: 15px; padding: 12px; background: #f8f9fa; border: 1px solid #dcdcdc; border-radius: 6px; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
         <div style="display: flex; align-items: center; gap: 6px;">
             <label style="font-weight: bold; font-size: 13px;">From Date:</label>
-            <input type="date" id="startDate" class="form-control" style="padding: 5px; border: 1px solid #ccc; border-radius: 4px;">
+            <span class="report-date-wrap">
+                    <input type="text" id="startDate_display" aria-label="From Date (dd/mm/yyyy)" placeholder="dd/mm/yyyy" maxlength="10" autocomplete="off">
+                    <span class="report-date-calendar"><span aria-hidden="true">📅</span>
+                        <input type="date" id="startDate" aria-label="Choose From Date from calendar">
+                    </span>
+                </span>
         </div>
 
         <div style="display: flex; align-items: center; gap: 6px;">
             <label style="font-weight: bold; font-size: 13px;">To Date:</label>
-            <input type="date" id="endDate" class="form-control" style="padding: 5px; border: 1px solid #ccc; border-radius: 4px;">
+            <span class="report-date-wrap">
+                    <input type="text" id="endDate_display" aria-label="To Date (dd/mm/yyyy)" placeholder="dd/mm/yyyy" maxlength="10" autocomplete="off">
+                    <span class="report-date-calendar"><span aria-hidden="true">📅</span>
+                        <input type="date" id="endDate" aria-label="Choose To Date from calendar">
+                    </span>
+                </span>
         </div>
 
         <button id="btnFilter" onclick="applyDateFilter()" class="btn btn-primary" style="padding: 6px 15px; background-color: #2980b9; color: white; border: none; border-radius: 4px; cursor: pointer;">
@@ -96,6 +114,28 @@
         /**
          * Local date ko YYYY-MM-DD format me convert karta hai
          */
+    function bindReportDate(id) {
+        const picker = document.getElementById(id);
+        const display = document.getElementById(id + '_display');
+        function showDate() {
+            display.value = picker.value.split('-').reverse().join('/');
+            display.setCustomValidity('');
+        }
+        function readDate() {
+            const value = display.value.trim();
+            const iso = /^\d{2}\/\d{2}\/\d{4}$/.test(value) ? value.split('/').reverse().join('-') : '';
+            picker.value = iso;
+            display.setCustomValidity(value && (!iso || picker.value !== iso)
+                ? 'Valid date dd/mm/yyyy mein likhein.' : '');
+        }
+        picker.addEventListener('input', showDate);
+        picker.addEventListener('change', showDate);
+        display.addEventListener('input', readDate);
+        display.addEventListener('change', readDate);
+        showDate();
+    }
+
+
         function getTodayFormatted() {
             const today = new Date();
             const year = today.getFullYear();
@@ -209,6 +249,7 @@
          * Filter apply karne ka function
          */
         function applyDateFilter() {
+            for (const id of ['startDate_display','endDate_display']) if (!document.getElementById(id).reportValidity()) return;
             const sDate = document.getElementById('startDate').value;
             const eDate = document.getElementById('endDate').value;
 
@@ -232,6 +273,7 @@
             const todayStr = getTodayFormatted();
             document.getElementById('startDate').value = todayStr;
             document.getElementById('endDate').value = todayStr;
+            for (const id of ['startDate','endDate']) document.getElementById(id).dispatchEvent(new Event('change'));
             loadStaticExpensesReport(todayStr, todayStr);
         }
 
@@ -240,9 +282,11 @@
         // -------------------------------------------------------------
 
         document.addEventListener('DOMContentLoaded', () => {
+            ['startDate','endDate'].forEach(bindReportDate);
             const todayStr = getTodayFormatted();
             document.getElementById('startDate').value = todayStr;
             document.getElementById('endDate').value = todayStr;
+            for (const id of ['startDate','endDate']) document.getElementById(id).dispatchEvent(new Event('change'));
             
             // Initial load for Today's expenses
             loadStaticExpensesReport(todayStr, todayStr);

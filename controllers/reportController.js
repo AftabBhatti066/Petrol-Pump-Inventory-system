@@ -1,3 +1,4 @@
+const { reportSql } = require('../services/monthProfit');
 const db = require('../config/db');
 
 // Target Static Search IDs for Expenses
@@ -67,131 +68,37 @@ exports.getTrialBalance = async (req, res) => {
 
 // 3. Get Dispenser Profit Report (FIXED: Uses req.query properly for dates)
 exports.getDispenserProfitReport = async (req, res) => {
+    const { userId } = req.query;
+    if (!/^[1-9]\d*$/.test(String(userId || '')) || Number(userId) > 2147483647) {
+        return res.status(400).json({ success: false, message: 'Valid userId required.' });
+    }
+    const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(new Date());
+    let start = req.query.start_date ?? req.query.startDate;
+    let end = req.query.end_date ?? req.query.endDate;
+    if (start == null && end == null) {
+        start = today.slice(0, 7) + '-01';
+        end = today;
+    }
+    function validDate(value) {
+        if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+        const date = new Date(value + 'T00:00:00Z');
+        return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+    }
+    if (!validDate(start) || !validDate(end) || start > end) {
+        return res.status(400).json({ success: false, message: 'Select a valid start and end date in order.' });
+    }
+
+    // One database snapshot for sales, purchase costs, pricing and expenses.
     try {
-        const { start_date, end_date, startDate, endDate, userId } = req.query;
-
-        const now = new Date();
-        const firstDayOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-        const todayStr = now.toISOString().split('T')[0];
-
-        const sDate = start_date || startDate || firstDayOfCurrentMonth;
-        const eDate = end_date || endDate || todayStr;
-
-        let detailsQuery = `
-            SELECT 
-                combined.id,
-                combined.reading_date,
-                combined.nozzle_name,
-                combined.fuel_type,
-                combined.liters_sold,
-                COALESCE(fr.purchase_price, 0) AS cost_rate,
-                COALESCE(fr.rate_per_litre, 0) AS selling_rate,
-                (combined.liters_sold * COALESCE(fr.purchase_price, 0)) AS total_cost_pkr,
-                (combined.liters_sold * COALESCE(fr.rate_per_litre, 0)) AS total_revenue_pkr,
-                ((combined.liters_sold * COALESCE(fr.rate_per_litre, 0)) - (combined.liters_sold * COALESCE(fr.purchase_price, 0))) AS gross_profit_pkr
-            FROM (
-                -- Meter Readings (Super & Diesel) - Uses reading_date entered by user
-                SELECT 
-                    mr.id,
-                    mr.reading_date::date AS reading_date,
-                    COALESCE(mr.nozzle_name, 'Dispenser') AS nozzle_name,
-                    COALESCE(mr.fuel_type, 'Fuel') AS fuel_type,
-                    COALESCE(mr.liters_sold, 0) AS liters_sold,
-                    mr.user_id
-                FROM meter_readings mr
-                WHERE COALESCE(mr.liters_sold, 0) > 0
-
-                UNION ALL
-
-                -- Lubricant Shift Sales
-                SELECT 
-                    lss.id,
-                    lss.sale_date AS reading_date,
-                    'Mobiloil Counter' AS nozzle_name,
-                    COALESCE(lss.item_name, 'Mobiloil') AS fuel_type,
-                    COALESCE(lss.liters_sold, 0) AS liters_sold,
-                    lss.user_id
-                FROM lubricant_shift_sales lss
-                WHERE COALESCE(lss.liters_sold, 0) > 0
-            ) combined
-            LEFT JOIN LATERAL (
-                SELECT rate_per_litre, purchase_price 
-                FROM fuel_rates fr_sub
-                WHERE LOWER(TRIM(fr_sub.product_name)) = LOWER(TRIM(combined.fuel_type))
-                   OR LOWER(TRIM(fr_sub.product_type)) = LOWER(TRIM(combined.fuel_type))
-                   OR LOWER(TRIM(fr_sub.specific_category)) = LOWER(TRIM(combined.fuel_type))
-                   OR LOWER(TRIM(combined.fuel_type)) LIKE '%' || LOWER(TRIM(fr_sub.product_name)) || '%'
-                   OR LOWER(TRIM(fr_sub.product_name)) LIKE '%' || LOWER(TRIM(combined.fuel_type)) || '%'
-                ORDER BY fr_sub.id DESC 
-                LIMIT 1
-            ) fr ON true
-            WHERE combined.reading_date BETWEEN $1 AND $2
-        `;
-        
-        const detailsParams = [sDate, eDate];
-
-        if (userId) {
-            detailsParams.push(userId);
-            detailsQuery += ` AND (combined.user_id = $${detailsParams.length} OR combined.user_id IS NULL)`;
-        }
-
-        detailsQuery += ` ORDER BY combined.reading_date ASC, combined.id ASC`;
-
-        const { rows: details } = await db.query(detailsQuery, detailsParams);
-
-        let expenseQuery = `
-            SELECT COALESCE(SUM(debit_udhaar), 0) AS "totalExpenses"
-            FROM daily_sheets
-            WHERE LOWER(TRIM(search_id)) = ANY($1::text[])
-              AND sheet_date::date BETWEEN $2 AND $3
-        `;
-        const expenseParams = [EXPENSE_SEARCH_IDS, sDate, eDate];
-
-        if (userId) {
-            expenseParams.push(userId);
-            expenseQuery += ` AND user_id = $${expenseParams.length}`;
-        }
-
-        const { rows: expenseRes } = await db.query(expenseQuery, expenseParams);
-        const totalExpenses = parseFloat(expenseRes[0]?.totalExpenses) || 0;
-
-        let totalLiters = 0;
-        let totalRevenue = 0;
-        let totalCost = 0;
-
-        details.forEach(row => {
-            totalLiters += parseFloat(row.liters_sold) || 0;
-            totalRevenue += parseFloat(row.total_revenue_pkr) || 0;
-            totalCost += parseFloat(row.total_cost_pkr) || 0;
-        });
-
-        const grossProfit = totalRevenue - totalCost;
-        const netProfit = grossProfit - totalExpenses;
-
-        return res.status(200).json({
-            success: true,
-            status: "Success",
-            summary: {
-                total_liters_sold: totalLiters,
-                total_revenue_pkr: totalRevenue,
-                total_cost_pkr: totalCost,
-                gross_profit_pkr: grossProfit,
-                total_expenses_pkr: totalExpenses,
-                total_profit_pkr: netProfit
-            },
-            data: details
-        });
+        const { rows } = await db.query(reportSql, [Number(userId), start, end, EXPENSE_SEARCH_IDS]);
+        return res.json({ success: true, status: 'Success', ...rows[0] });
     } catch (error) {
-        console.error('Error fetching Dispenser Profit:', error);
-        return res.status(500).json({
-            success: false,
-            status: "Error",
-            message: 'Dispenser Profit Report calculate nahi ho saki.',
-            error: error.message
-        });
+        console.error('Dispenser profit report:', error.message);
+        return res.status(500).json({ success: false, message: 'Profit report load nahi hui. Check the Node terminal.' });
     }
 };
-
 // 4. Get Daily Summary Report (FIXED: Uses req.query properly)
 exports.getDailySummary = async (req, res) => {
     try {
@@ -214,124 +121,7 @@ exports.getDailySummary = async (req, res) => {
 };
 
 // 5. Post Month-End Profit
-exports.postMonthEndProfit = async (req, res) => {
-    try {
-        const { startDate, start_date, endDate, end_date, userId } = req.body;
-        const sDate = startDate || start_date;
-        const eDate = endDate || end_date;
-
-        if (!sDate || !eDate || !userId) {
-            return res.status(400).json({
-                success: false,
-                status: "Error",
-                message: "startDate, endDate aur userId zaroori hain."
-            });
-        }
-
-        let combinedProfitQuery = `
-            SELECT 
-                combined.fuel_type,
-                SUM(
-                    (combined.liters_sold * COALESCE(fr.rate_per_litre, 0)) - 
-                    (combined.liters_sold * COALESCE(fr.purchase_price, 0))
-                ) AS item_profit
-            FROM (
-                -- Fuel Readings
-                SELECT 
-                    TRIM(mr.fuel_type) AS fuel_type,
-                    COALESCE(mr.liters_sold, 0) AS liters_sold,
-                    mr.user_id,
-                    mr.reading_date::date AS transaction_date
-                FROM meter_readings mr
-                WHERE COALESCE(mr.liters_sold, 0) > 0
-
-                UNION ALL
-
-                -- Lubricant Shift Sales
-                SELECT 
-                    TRIM(lss.item_name) AS fuel_type,
-                    COALESCE(lss.liters_sold, 0) AS liters_sold,
-                    lss.user_id,
-                    lss.sale_date AS transaction_date
-                FROM lubricant_shift_sales lss
-                WHERE COALESCE(lss.liters_sold, 0) > 0
-            ) combined
-            LEFT JOIN LATERAL (
-                SELECT rate_per_litre, purchase_price 
-                FROM fuel_rates fr_sub
-                WHERE LOWER(TRIM(fr_sub.product_name)) = LOWER(TRIM(combined.fuel_type))
-                   OR LOWER(TRIM(fr_sub.product_type)) = LOWER(TRIM(combined.fuel_type))
-                   OR LOWER(TRIM(fr_sub.specific_category)) = LOWER(TRIM(combined.fuel_type))
-                   OR LOWER(TRIM(combined.fuel_type)) LIKE '%' || LOWER(TRIM(fr_sub.product_name)) || '%'
-                   OR LOWER(TRIM(fr_sub.product_name)) LIKE '%' || LOWER(TRIM(combined.fuel_type)) || '%'
-                ORDER BY fr_sub.id DESC 
-                LIMIT 1
-            ) fr ON true
-            WHERE combined.transaction_date BETWEEN $1 AND $2
-              AND (combined.user_id = $3 OR combined.user_id IS NULL)
-            GROUP BY combined.fuel_type
-        `;
-
-        const { rows: profits } = await db.query(combinedProfitQuery, [sDate, eDate, userId]);
-
-        if (profits.length === 0) {
-            return res.status(400).json({
-                success: false,
-                status: "Error",
-                message: "Is date range ke darmiyan koi sales ya profit nahi mili."
-            });
-        }
-
-        const addedRecords = [];
-
-        for (const row of profits) {
-            const rawItemName = (row.fuel_type || '').toLowerCase();
-            const profitAmount = parseFloat(row.item_profit) || 0;
-
-            if (profitAmount <= 0) continue;
-
-            let searchId = '';
-
-            if (rawItemName.includes('diesel') || rawItemName.includes('hsd') || rawItemName.includes('dl')) {
-                searchId = 'dl';
-            } else if (rawItemName.includes('super') || rawItemName.includes('petrol') || rawItemName.includes('sp') || rawItemName.includes('pm')) {
-                searchId = 'sp';
-            } else {
-                searchId = 'lub';
-            }
-
-            if (searchId) {
-                const description = `Month-End Profit Return (${sDate} to ${eDate}) - ${row.fuel_type}`;
-
-                await db.query(
-                    `INSERT INTO daily_sheets (search_id, debit_udhaar, credit_vasooli, description, sheet_date, user_id, total_balance) 
-                     VALUES ($1, $2, 0.00, $3, $4, $5, $6)`,
-                    [searchId, profitAmount, description, eDate, userId, -profitAmount]
-                );
-
-                addedRecords.push({
-                    search_id: searchId,
-                    debit_udhaar: profitAmount,
-                    item: row.fuel_type,
-                    sheet_date: eDate
-                });
-            }
-        }
-
-        return res.status(200).json({
-            success: true,
-            status: "Success",
-            message: "Month-End profit (Fuel & Lubricants) successfully added to daily_sheets table.",
-            details: addedRecords
-        });
-
-    } catch (error) {
-        console.error('Error posting month-end profit to daily_sheets:', error);
-        return res.status(500).json({
-            success: false,
-            status: "Error",
-            message: "Month-End profit post karne mein masla aaya hai.",
-            error: error.message
-        });
-    }
+exports.postMonthEndProfit = (req, res) => {
+    return res.status(409).json({success:false, status:'Error',
+        message:'Month-end profit is posted automatically by Meter Reading > Save & Close Day.'});
 };

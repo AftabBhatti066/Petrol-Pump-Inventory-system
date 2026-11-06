@@ -448,3 +448,44 @@ exports.getExpensesReport = async (req, res) => {
         });
     }
 };
+
+// Last saved date + 1 day — sirf date read karega
+exports.getDefaultWorkingDate = async (req, res) => {
+    try {
+        const { userId } = req.query;
+
+        if (!userId) {
+            return res.status(400).json({
+                status: "Error",
+                message: "User ID parameter missing!"
+            });
+        }
+
+        const query = `
+            SELECT
+                TO_CHAR(MAX(sheet_date::date), 'YYYY-MM-DD')
+                    AS last_saved_date,
+                TO_CHAR(MAX(sheet_date::date) + 1, 'YYYY-MM-DD')
+                    AS working_date
+            FROM daily_sheets
+            WHERE user_id = $1
+        `;
+
+        const { rows } = await db.query(query, [userId]);
+
+        res.set('Cache-Control', 'no-store');
+
+        return res.json({
+            status: "Success",
+            last_saved_date: rows[0]?.last_saved_date || null,
+            working_date: rows[0]?.working_date || null
+        });
+    } catch (error) {
+        console.error("Default Working Date Error:", error);
+
+        return res.status(500).json({
+            status: "Error",
+            message: "Working date load nahi ho saki."
+        });
+    }
+};
